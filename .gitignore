@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# mkdocs build output
+site/
+
+# braid state — config.toml is meant to be committed, the cache is not
+.braid/cache/
+
+.ipynb_checkpoints/

@@ -1,0 +1,75 @@
+[project]
+name = "braid"
+version = "0.1.0"
+description = "Parallel map over AWS Lambda/Batch with automatic uv dependency sync."
+readme = "README.md"
+requires-python = ">=3.13.5"
+
+dependencies = [
+    "boto3>=1.43.4",
+    "click>=8.3.3",
+    "cloudpickle>=3.1.2",
+    "pydantic>=2.13.3",
+    "rich>=13.9.4",
+    "tomli-w>=1.2.0",
+    "tqdm>=4.67.3",
+]
+
+[dependency-groups]
+dev = [
+    "moto[s3,sqs,iam,batch]>=5.2.0",
+    "pytest>=9.0.3",
+    "pytest-mock>=3.15.1",
+    "pytest-xdist",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.0",
+    "dask[array]>=2026.3.0",
+    "xarray>=2026.4.0",
+    "zarr>=3.0",
+    "prek>=0.3.13",
+    "ruff>=0.15.12",
+    "coiled>=1.134.0",
+    "ipykernel>=7.2.0",
+    "jupyter-server-proxy>=4.5.0",
+    "ipdb>=0.13.13",
+]
+worker = [
+    "dask[array]>=2026.3.0",
+    "flox>=0.11.2",
+    "obstore>=0.9.4",
+    "s3fs>=0.4.2",
+    "xarray>=2026.4.0",
+    "zarr>=3.0",
+]
+virtualizarr = [
+    "h5netcdf>=1.8.1",
+    # Lambda worker deps for virtualizarr examples (goes_1000.py)
+    "h5py>=3.16.0",
+    "icechunk>=2.0.4",
+    "numpy>=2.4.4",
+    "obspec-utils>=0.9.0",
+    "obstore>=0.9.4",
+    "virtualizarr>=2.6.1",
+]
+docs = [
+    "mkdocs-material>=9",
+    "mkdocstrings[python]>=0.25",
+]
+
+[project.scripts]
+braid = "braid.cli.commands:cli"
+
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F (Defaults), B (Bugbear), I (Isort), UP (Upgrade)
+select = ["E", "F", "B", "I", "UP"]
+ignore = ["E501"]

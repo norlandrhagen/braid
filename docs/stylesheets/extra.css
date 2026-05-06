@@ -1,0 +1,18 @@
+/* Wider content column; Material's default 61rem is narrow for wide tables */
+.md-grid {
+  max-width: 68rem;
+}
+
+/* Keep wide tables scrollable rather than squeezing columns */
+.md-typeset table:not([class]) {
+  display: table;
+}
+
+.md-typeset__table {
+  overflow-x: auto;
+}
+
+/* Tighter code blocks */
+.md-typeset pre > code {
+  font-size: 0.72rem;
+}

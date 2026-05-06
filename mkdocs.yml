@@ -1,0 +1,62 @@
+site_name: braid
+site_description: AWS Lambda and Batch parallel map with automatic uv dependency sync
+site_url: https://norlandrhagen.github.io/braid/
+repo_url: https://github.com/norlandrhagen/braid
+repo_name: norlandrhagen/braid
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            heading_level: 3
+            docstring_style: numpy
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            line_length: 80
+            docstring_section_style: list
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            merge_init_into_class: true
+
+# Internal design note, not part of the published site
+exclude_docs: |
+  cubed_executor.md
+
+validation:
+  links:
+    anchors: warn
+
+nav:
+  - Home: index.md
+  - Usage: usage.md
+  - Reference: reference.md
+  - API Reference: api.md

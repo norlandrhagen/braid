@@ -1,0 +1,30 @@
+region = "us-west-2"
+bucket = "your-bucket-name"
+bucket_prefix = ""
+sqs_queue_url = "https://sqs.us-west-2.amazonaws.com/123456789012/braid-results"
+worker_function_name = "braid-worker"
+arch = "x86_64"
+python_version = "3.13"
+batch_size = 10
+memory_mb = 512
+collect_timeout_s = 3600
+lambda_timeout_s = 300
+max_concurrency = 200
+max_retries = 2
+exclude_packages = []
+backend = "batch"
+batch_job_queue = "braid-queue"
+batch_job_definition = "braid-job"
+batch_vcpu = 2.0
+batch_memory_mb = 4096
+batch_execution_role_arn = "arn:aws:iam::123456789012:role/braid-batch-execution-role"
+batch_subnet_ids = [
+    "subnet-00000000000000001",
+    "subnet-00000000000000002",
+]
+batch_security_group_ids = [
+    "sg-00000000000000001",
+]
+batch_instance_types = []
+batch_image = ""
+batch_ephemeral_storage_gib = 21
