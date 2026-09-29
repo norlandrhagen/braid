@@ -51,7 +51,7 @@ class TestWorkerScriptModeDispatch:
         os.environ["BRAID_PYTHON_VERSION"] = "3.13"
         mocker.patch("urllib.request.urlretrieve")
         mock_put = mocker.patch.object(_worker_script, "_put")
-        mock_call = mocker.patch("subprocess.call", return_value=0)
+        mock_call = mocker.patch.object(_worker_script, "_run", return_value=(0, ""))
 
         with pytest.raises(SystemExit) as exc:
             _worker_script.main()
@@ -79,7 +79,7 @@ class TestWorkerScriptModeDispatch:
         mocker.patch.dict("sys.modules", {"_worker_common": fake_common})
 
         mock_put = mocker.patch.object(_worker_script, "_put")
-        mock_call = mocker.patch("subprocess.call", return_value=0)
+        mock_call = mocker.patch.object(_worker_script, "_run", return_value=(0, ""))
 
         with pytest.raises(SystemExit) as exc:
             _worker_script.main()
@@ -99,7 +99,7 @@ class TestWorkerScriptExitCode:
         os.environ["BRAID_PYTHON_VERSION"] = "3.13"
         mocker.patch("urllib.request.urlretrieve")
         mock_put = mocker.patch.object(_worker_script, "_put")
-        mocker.patch("subprocess.call", return_value=1)
+        mocker.patch.object(_worker_script, "_run", return_value=(1, "boom\n"))
 
         with pytest.raises(SystemExit) as exc:
             _worker_script.main()
@@ -109,6 +109,20 @@ class TestWorkerScriptExitCode:
         assert put_url == "https://example.com/put-error"
         payload = json.loads(body)
         assert "exited with code 1" in payload["error"]
+        assert payload["traceback"] == "boom\n"
+
+    def test_run_returns_exit_code_and_stderr_tail(self):
+        import sys
+
+        code, tail = _worker_script._run(
+            [
+                sys.executable,
+                "-c",
+                "import sys\nfor i in range(60): print(i, file=sys.stderr)\nsys.exit(3)",
+            ]
+        )
+        assert code == 3
+        assert tail.splitlines() == [str(i) for i in range(10, 60)]
 
     def test_marker_put_failure_does_not_mask_exit_code(self, script_env, mocker):
         """Marker PUT failures must not prevent the script exit code from propagating."""
@@ -116,7 +130,7 @@ class TestWorkerScriptExitCode:
         os.environ["BRAID_PYTHON_VERSION"] = "3.13"
         mocker.patch("urllib.request.urlretrieve")
         mocker.patch.object(_worker_script, "_put", side_effect=OSError("network down"))
-        mocker.patch("subprocess.call", return_value=0)
+        mocker.patch.object(_worker_script, "_run", return_value=(0, ""))
 
         with pytest.raises(SystemExit) as exc:
             _worker_script.main()

@@ -18,6 +18,7 @@ import pickle
 import subprocess
 import sys
 import urllib.request
+from collections import deque
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 log = logging.getLogger("braid.worker_script")
@@ -26,6 +27,16 @@ log = logging.getLogger("braid.worker_script")
 def _put(url: str, body: bytes) -> None:
     req = urllib.request.Request(url, data=body, method="PUT")
     urllib.request.urlopen(req)
+
+
+def _run(cmd: list[str], tail_lines: int = 50) -> tuple[int, str]:
+    """Run cmd, tee stderr to our stderr (CloudWatch), return (exit code, stderr tail)."""
+    tail: deque[str] = deque(maxlen=tail_lines)
+    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, errors="replace")
+    for line in proc.stderr:
+        sys.stderr.write(line)
+        tail.append(line)
+    return proc.wait(), "".join(tail)
 
 
 def main() -> None:
@@ -54,7 +65,7 @@ def main() -> None:
             "/tmp/script.py",
         ]
 
-    code = subprocess.call(cmd)
+    code, stderr_tail = _run(cmd)
 
     try:
         if code == 0:
@@ -63,7 +74,10 @@ def main() -> None:
             _put(
                 os.environ["BRAID_ERROR_PUT_URL"],
                 json.dumps(
-                    {"error": f"script exited with code {code}", "traceback": ""}
+                    {
+                        "error": f"script exited with code {code}",
+                        "traceback": stderr_tail,
+                    }
                 ).encode(),
             )
     except Exception:
