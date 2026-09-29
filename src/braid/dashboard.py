@@ -126,20 +126,33 @@ class _Api:
         stream = jobs[0].get("container", {}).get("logStreamName") if jobs else None
         if not stream:
             return []
+        # Metric lines are ~1 per 5s, so page backwards until enough real lines.
+        lines: list[dict] = []
+        kwargs = {
+            "logGroupName": LOG_GROUP,
+            "logStreamName": stream,
+            "limit": 500,
+            "startFromHead": False,
+        }
         try:
-            resp = self.logs.get_log_events(
-                logGroupName=LOG_GROUP,
-                logStreamName=stream,
-                limit=500,
-                startFromHead=False,
-            )
+            for _ in range(10):
+                resp = self.logs.get_log_events(**kwargs)
+                lines = [
+                    {"t": e["timestamp"], "message": e["message"]}
+                    for e in resp["events"]
+                    if not e["message"].startswith(METRICS_PREFIX)
+                ] + lines
+                token = resp.get("nextBackwardToken")
+                if (
+                    len(lines) >= 500
+                    or not resp["events"]
+                    or token == kwargs.get("nextToken")
+                ):
+                    break
+                kwargs["nextToken"] = token
         except self.logs.exceptions.ResourceNotFoundException:
-            return []
-        return [
-            {"t": e["timestamp"], "message": e["message"]}
-            for e in resp["events"]
-            if not e["message"].startswith(METRICS_PREFIX)
-        ]
+            pass
+        return lines[-500:]
 
 
 def _handler(api: _Api) -> type[BaseHTTPRequestHandler]:

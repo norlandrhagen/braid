@@ -22,7 +22,7 @@
   --teal: #64b9c4; --blue: #85a2f7; --purple: #bc85d9; --pink: #e587b6; --grey: #a9b4c4;
   --body: relative-book-pro, Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --heading: relative-medium-pro, Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --mono: relative-mono-11-pitch-pro, Menlo, monospace;
+  --mono: relative-mono-11-pitch-pro, ui-monospace, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) { --text: #1b1e23; --background: #ffffff; --muted: #b9b9bb; --hinted: #f2f2f1; }
@@ -331,6 +331,11 @@ function drawCharts() {
   for (const p of PANELS) {
     const sec = $(`#p-${p.key}`), el = $('.chart', sec), leg = $('.legend', sec);
     leg.innerHTML = p.series.map(se => `<span><span class="dot" style="background:${css('--' + se.color)}"></span> ${se.label}<span class="v"></span></span>`).join('');
+    if (!window.uPlot) {
+      el.innerHTML = '<div class="nodata">Chart library failed to load (offline?). Latest: ' + (state.samples.length ? p.series.map(se => `${se.label} ${esc(p.fmt(se.get(state.samples.at(-1))))}`).join(', ') : 'no samples') + '</div>';
+      charts.push({ p, el, leg });
+      continue;
+    }
     if (state.samples.length < 2) {
       el.innerHTML = `<div class="nodata">${state.job && !state.job.has_stream ? 'Waiting for the task to start' : 'No metrics yet (samples every 5s)'}</div>`;
       charts.push({ p, el, leg });

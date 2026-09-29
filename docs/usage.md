@@ -323,6 +323,22 @@ uv run braid batch cancel <job_id>          # terminate a running job
 uv run braid clean <job_id>                 # delete its S3 artifacts
 ```
 
+### Dashboard
+
+```bash
+uv run braid dashboard                      # http://127.0.0.1:8787, opens a browser tab
+```
+
+A local page listing Batch jobs (last ~7 days, the period Batch retains them) with status, vCPU,
+memory, disk, elapsed time, estimated cost, logs, and live CPU / memory / network / disk charts
+(drag to zoom; array jobs have a Task selector). It uses your AWS credentials and stores nothing.
+
+Metrics come from a sampler on each worker that writes a `BRAID_METRICS` line to the task's
+CloudWatch log every 5s (hidden from `braid batch logs`), so only jobs submitted with the
+current braid version have charts. It is read-only; see the
+[dashboard policy](reference.md#iam-and-auth) for the permissions it needs. The page loads uPlot and fonts from a CDN; without
+network access, charts fall back to the latest values as text.
+
 ### Resource overrides and passthrough env vars
 
 ```bash

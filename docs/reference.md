@@ -20,6 +20,7 @@ braid batch status <job_id>       AWS state and done/failed/pending task counts
 braid batch wait   <job_id>       Block until the job ends; exit 1 on failure
 braid batch logs   <job_id> [-f]  Print a job's output (--index N for array children)
 braid batch cancel <job_id>       Terminate a running or pending Batch job
+braid dashboard                   Local web UI: Batch jobs with live CPU/memory/network/disk (--port, --no-browser)
 ```
 
 `braid --verbose <command>` raises the log level to DEBUG.
@@ -198,6 +199,28 @@ it attaches.
       `batch:SubmitJob`, `batch:DescribeJobs`, `batch:DescribeJobQueues`
     - `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`
     - `iam:CreateRole`, `iam:PutRolePolicy`, `iam:AttachRolePolicy` (only with `--create-role`)
+
+??? note "Dashboard (read-only)"
+
+    `braid dashboard` only reads. Credentials need:
+
+    ```json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": ["batch:ListJobs", "batch:DescribeJobs", "batch:DescribeJobQueues"],
+          "Resource": "*"
+        },
+        {
+          "Effect": "Allow",
+          "Action": ["logs:GetLogEvents", "logs:FilterLogEvents"],
+          "Resource": "arn:aws:logs:*:*:log-group:/aws/batch/job:*"
+        }
+      ]
+    }
+    ```
 
 ## Heavy dependencies (GDAL, HDF5, PROJ)
 
