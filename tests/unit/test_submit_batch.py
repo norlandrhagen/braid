@@ -199,7 +199,7 @@ class TestSubmitBatchJobSubmission:
 
         assert len(result) == 3
         job_id, n, batch_job_id = result
-        assert isinstance(job_id, str) and len(job_id) == 36
+        assert isinstance(job_id, str) and len(job_id) == 8
         assert n == 2
         assert isinstance(batch_job_id, str)
 

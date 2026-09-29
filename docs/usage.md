@@ -282,14 +282,11 @@ uv run braid batch run train.py
 uv run braid batch run train.py --wait   # stream logs, exit 1 if the job fails
 ```
 
-This prints both ids and returns immediately:
+This prints a short job id and returns immediately:
 
 ```
-Submitted: train.py
-  braid job id: 3f9c1e2a-...
-  batch job id: 8b7a...
-Monitor: braid status 3f9c1e2a-...   |   braid jobs --watch
-Cancel:  braid cancel 8b7a...
+Submitted train.py as job 3f9c1e2a
+  braid batch logs -f 3f9c1e2a   |   braid batch cancel 3f9c1e2a
 ```
 
 Requires a project already `braid init`'d with the Batch backend (or one that has Batch
@@ -315,14 +312,15 @@ resources even if `backend = "lambda"`) — `batch_execution_role_arn` must be s
 
 ### Monitoring and control
 
-A script job is a single (non-array) Batch job, so the existing tooling works unchanged:
+These commands work for script jobs and for `fan`/`submit` Batch jobs. Any unique id prefix works.
 
 ```bash
-uv run braid status <job_id>          # done/failed/pending — done=1 means exit code 0
-uv run braid jobs --watch             # recent jobs, AWS state, cost estimate
-uv run braid logs -f <job_id>         # stream the script's output (--index N for array children)
-uv run braid cancel <batch_job_id>    # terminate a running job
-uv run braid clean <job_id>           # delete its S3 artifacts
+uv run braid batch list --watch             # recent jobs, AWS state, cost estimate
+uv run braid batch status <job_id>          # done/failed/pending — done=1 means exit code 0
+uv run braid batch wait <job_id>            # block until done; exit 1 on failure
+uv run braid batch logs -f <job_id>         # stream output (--index N for array children)
+uv run braid batch cancel <job_id>          # terminate a running job
+uv run braid clean <job_id>                 # delete its S3 artifacts
 ```
 
 ### Resource overrides and passthrough env vars

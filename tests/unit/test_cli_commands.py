@@ -159,7 +159,6 @@ class TestBatchRunCommand:
 
         assert result.exit_code == 0, result.output
         assert "job-123" in result.output
-        assert "batch-job-456" in result.output
 
         used_config = mock_submit.call_args[0][1]
         assert used_config.batch_vcpu == 4
@@ -238,7 +237,7 @@ def test_logs_pages_until_token_repeats_and_resolves_braid_id(mocker, tmp_path):
     ]
     mocker.patch("boto3.client", return_value=logs)
 
-    result = CliRunner().invoke(cli, ["logs", "braid-a", "--follow"])
+    result = CliRunner().invoke(cli, ["batch", "logs", "braid-a", "--follow"])
 
     assert result.exit_code == 0, result.output
     assert result.output == "one\ntwo\n"

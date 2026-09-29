@@ -239,7 +239,7 @@ class TestSubmitScriptJobSubmission:
 
         assert len(result) == 2
         job_id, batch_job_id = result
-        assert isinstance(job_id, str) and len(job_id) == 36
+        assert isinstance(job_id, str) and len(job_id) == 8
         assert isinstance(batch_job_id, str)
 
     def test_job_records_written(self, aws_s3, tmp_path, mocker):
@@ -251,5 +251,7 @@ class TestSubmitScriptJobSubmission:
 
         job_id, batch_job_id = submit_script(script, cfg)
 
-        record_local.assert_called_once_with(job_id, batch_job_id, 1, cfg)
+        record_local.assert_called_once_with(
+            job_id, batch_job_id, 1, cfg, name="script.py"
+        )
         record_s3.assert_called_once_with(job_id, batch_job_id, 1, cfg)

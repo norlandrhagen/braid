@@ -401,8 +401,6 @@ class TestRetryArtifactCleanup:
 
     def test_retry_cleanup_removes_all_job_ids(self, aws_resources, mocker, synced):
         """Verify that cleanup removes S3 artifacts for all retry job_ids."""
-        import uuid as uuid_module
-
         mocker.patch(
             "braid.aws.lambda_client.invoke_async",
             side_effect=_make_invoke_side_effect(mocker),
@@ -410,27 +408,11 @@ class TestRetryArtifactCleanup:
 
         config = _make_config(aws_resources["queue_url"])
 
-        # Mock uuid.uuid4 to return predictable values so we know the job_ids
-        # Keep a counter to track which calls are for job_ids (0, 1) vs other uses
-        job_id_original = uuid_module.UUID("12345678-1234-1234-1234-123456789012")
-        job_id_retry = uuid_module.UUID("87654321-4321-4321-4321-210987654321")
-        job_id_values = [job_id_original, job_id_retry]
-        call_count = [0]
-        real_uuid4 = uuid_module.uuid4
-
-        def mock_uuid4():
-            # Use our tracked values for the first two calls (job_ids), then fall back
-            if call_count[0] < 2:
-                result = job_id_values[call_count[0]]
-                call_count[0] += 1
-                return result
-            else:
-                # For other calls (boto3 internal), use real uuid4
-                return real_uuid4()
-
+        # Predictable job_ids for the original and retry jobs
+        job_id_original, job_id_retry = "12345678", "87654321"
         mocker.patch(
-            "braid.core.uuid.uuid4",
-            side_effect=mock_uuid4,
+            "braid.core.secrets.token_hex",
+            side_effect=[job_id_original, job_id_retry],
         )
 
         # Run fan with a retry, without mocking delete_prefix so it runs for real
@@ -511,8 +493,8 @@ class TestRetryArtifactCleanup:
 
         # Verify that S3 prefixes for both original and retry job_ids are actually empty
         s3 = aws_resources["s3"]
-        job_id_original_str = str(job_id_original)
-        job_id_retry_str = str(job_id_retry)
+        job_id_original_str = job_id_original
+        job_id_retry_str = job_id_retry
 
         # Check original job_id prefix
         response_original = s3.list_objects_v2(

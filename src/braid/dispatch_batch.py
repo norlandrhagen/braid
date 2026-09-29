@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import re
-import uuid
+import secrets
 from pathlib import Path
 
 import cloudpickle
@@ -156,7 +156,7 @@ def submit_batch(
     batch_job_id is the AWS Batch array job ID, used to terminate stuck jobs.
     detach makes workers store results in S3 rather than SQS.
     """
-    job_id = str(uuid.uuid4())
+    job_id = secrets.token_hex(4)
     s3 = s3_client.get_client(config.region)
 
     fn_key = config.s3_key(f"jobs/{job_id}/fn.pkl")
@@ -253,7 +253,7 @@ def submit_script(
 
     Returns (braid_job_id, batch_job_id).
     """
-    job_id = str(uuid.uuid4())
+    job_id = secrets.token_hex(4)
     s3 = s3_client.get_client(config.region)
 
     script_key = config.s3_key(f"jobs/{job_id}/script.py")
@@ -317,7 +317,7 @@ def submit_script(
     from braid.core import _record_batch_job
     from braid.detach import _write_job_record
 
-    _record_batch_job(job_id, batch_job_id, 1, config)
+    _record_batch_job(job_id, batch_job_id, 1, config, name=script_path.name)
     _write_job_record(job_id, batch_job_id, 1, config)
 
     return job_id, batch_job_id

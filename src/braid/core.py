@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 import time
-import uuid
+import secrets
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -227,7 +227,7 @@ def fan(
             "Run `braid sync` first."
         )
 
-    job_id = str(uuid.uuid4())
+    job_id = secrets.token_hex(4)
     s3 = s3_client.get_client(cfg.region)
     concurrency = max_concurrency or cfg.max_concurrency
     lam = lambda_client.get_client(
@@ -275,7 +275,7 @@ def fan(
             break
 
         attempt += 1
-        current_job_id = str(uuid.uuid4())
+        current_job_id = secrets.token_hex(4)
         job_ids_to_cleanup.append(current_job_id)  # Track new retry job_id for cleanup
         current_inputs = [inputs[i] for i in orig_failed_indices]
         idx_map = orig_failed_indices  # new local idx i → orig_failed_indices[i]
@@ -346,7 +346,7 @@ def fan_iter(
             "Run `braid sync` first."
         )
 
-    job_id = str(uuid.uuid4())
+    job_id = secrets.token_hex(4)
     s3 = s3_client.get_client(cfg.region)
     concurrency = max_concurrency or cfg.max_concurrency
     lam = lambda_client.get_client(
@@ -370,13 +370,20 @@ def fan_iter(
 _BATCH_TIMEOUT_WARN = 600  # warn if the collection timeout is this low for Batch jobs
 
 
-def _record_batch_job(job_id: str, batch_job_id: str, n: int, cfg: Config) -> None:
+def _fn_name(fn: Callable) -> str:
+    return getattr(fn, "__name__", type(fn).__name__)  # partials have no __name__
+
+
+def _record_batch_job(
+    job_id: str, batch_job_id: str, n: int, cfg: Config, name: str = ""
+) -> None:
     path = jobs_cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     records = json.loads(path.read_text()) if path.exists() else []
     records.append(
         {
             "job_id": job_id,
+            "name": name,
             "batch_job_id": batch_job_id,
             "n_inputs": n,
             "submitted_at": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -418,7 +425,9 @@ def _fan_batch(
         job_id, _, batch_job_id = submit_batch(
             fn, current_inputs, cfg, project_key, editable_manifest
         )
-        _record_batch_job(job_id, batch_job_id, len(current_inputs), cfg)
+        _record_batch_job(
+            job_id, batch_job_id, len(current_inputs), cfg, name=_fn_name(fn)
+        )
 
         try:
             raw, failures = collect_results(

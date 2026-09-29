@@ -170,7 +170,7 @@ def sync(force: bool, exclude: tuple[str, ...]) -> None:
     click.echo(f"Sync complete: {result}")
 
 
-def _print_job_status(job_id: str, watch: bool) -> None:
+def _print_job_status(job_id: str, watch: bool):
     from braid.detach import status as job_status
 
     def _once():
@@ -182,27 +182,16 @@ def _print_job_status(job_id: str, watch: bool) -> None:
         return st
 
     st = _once()
-    if not watch:
-        return
-    try:
-        while not st.complete:
-            time.sleep(5)
-            st = _once()
-    except KeyboardInterrupt:
-        pass
+    # Batch state ends the wait too: a killed job (timeout, OOM) never writes all results.
+    while watch and not st.complete and st.batch_state not in ("SUCCEEDED", "FAILED"):
+        time.sleep(5)
+        st = _once()
+    return st
 
 
 @cli.command()
-@click.argument("job_id", required=False)
-@click.option(
-    "--watch", is_flag=True, help="Poll every 5s until the detached job completes."
-)
-def status(job_id: str | None, watch: bool) -> None:
-    """Check config reachability, or show a detached JOB_ID's status."""
-    if job_id:
-        _print_job_status(_resolve_id("job_id", job_id), watch)
-        return
-
+def status() -> None:
+    """Check backend resources and SQS are reachable."""
     try:
         config = load_config()
     except Exception as e:
@@ -305,7 +294,7 @@ def dry_run(module_path: str, function_name: str) -> None:
 @click.argument("job_id")
 def clean(job_id: str) -> None:
     """Delete S3 artifacts for a completed job."""
-    job_id = _resolve_id("job_id", job_id)
+    job_id = _find_job(job_id)["job_id"]
     config = load_config()
     s3 = s3_client.get_client(config.region)
     key = config.s3_key(f"jobs/{job_id}/")
@@ -313,28 +302,15 @@ def clean(job_id: str) -> None:
     click.echo(f"Deleted {key}")
 
 
-@cli.command()
-@click.argument("batch_job_id")
-@click.option("--reason", default="cancelled by user", show_default=True)
-def cancel(batch_job_id: str, reason: str) -> None:
-    """Terminate a running or pending AWS Batch job (and all array children)."""
-    from braid.aws import batch_client
-
-    batch_job_id = _resolve_id("batch_job_id", batch_job_id)
-    config = load_config()
-    batch = batch_client.get_client(config.region)
-    batch.terminate_job(jobId=batch_job_id, reason=reason)
-    click.echo(f"Terminated Batch job {batch_job_id}")
-
-
-def _batch_id_for(prefix: str) -> str:
-    """Map a braid job id or Batch job id (or a prefix of either) to the Batch job id."""
+def _find_job(prefix: str) -> dict:
+    """Jobs-cache record whose braid or Batch job id starts with `prefix`. With no
+    match, echoes `prefix` as both ids so AWS/S3 give their own not-found error."""
     from braid.config import jobs_cache_path
 
     path = jobs_cache_path()
     records = json.loads(path.read_text()) if path.exists() else []
     matches = {
-        r["batch_job_id"]
+        r["job_id"]: r
         for r in records
         if r.get("job_id", "").startswith(prefix)
         or r.get("batch_job_id", "").startswith(prefix)
@@ -343,7 +319,9 @@ def _batch_id_for(prefix: str) -> str:
         raise click.ClickException(
             f"Ambiguous id prefix {prefix!r} matches {len(matches)} jobs — use more characters."
         )
-    return matches.pop() if matches else prefix
+    if matches:
+        return matches.popitem()[1]
+    return {"job_id": prefix, "batch_job_id": prefix}
 
 
 def _print_new_log_events(logs, stream: str, token: str | None) -> str | None:
@@ -391,18 +369,6 @@ def _stream_logs(batch_job_id: str, region: str, follow: bool) -> dict:
         if job["status"] in ("SUCCEEDED", "FAILED") or not follow:
             return job
         time.sleep(5)
-
-
-@cli.command()
-@click.argument("job_id")
-@click.option("--index", type=int, default=None, help="Array child index.")
-@click.option("--follow", "-f", is_flag=True, help="Keep printing until the job ends.")
-def logs(job_id: str, index: int | None, follow: bool) -> None:
-    """Print a Batch job's output. JOB_ID is a braid or Batch job id (or prefix)."""
-    batch_job_id = _batch_id_for(job_id)
-    if index is not None:
-        batch_job_id = f"{batch_job_id}:{index}"
-    _stream_logs(batch_job_id, load_config().region, follow)
 
 
 @cli.group()
@@ -555,17 +521,14 @@ def batch_run(
         env_passthrough=env_passthrough or None,
     )
 
-    click.echo(f"Submitted: {script_path.name}")
-    click.echo(f"  braid job id: {job_id}")
-    click.echo(f"  batch job id: {batch_job_id}")
-    click.echo(f"Monitor: braid status {job_id}   |   braid jobs --watch")
-    click.echo(f"Cancel:  braid cancel {batch_job_id}")
+    click.echo(f"Submitted {script_path.name} as job {job_id}")
+    click.echo(f"  braid batch logs -f {job_id}   |   braid batch cancel {job_id}")
 
     if wait:
         try:
             job = _stream_logs(batch_job_id, config.region, follow=True)
         except KeyboardInterrupt:
-            click.echo(f"\nStopped waiting; job still running. Resume: braid logs -f {job_id}")
+            click.echo(f"\nStopped waiting; job still running. Resume: braid batch logs -f {job_id}")
             return
         if job["status"] != "SUCCEEDED":
             raise click.ClickException(
@@ -598,26 +561,6 @@ _STATUS_STYLE = {
 }
 
 
-def _resolve_id(field: str, prefix: str) -> str:
-    """Expand a truncated id (as shown in `braid jobs`) to its full value by
-    matching `field` in the jobs cache. Passes through unchanged if there's no
-    unique match, so callers still get AWS's own not-found error."""
-    from braid.config import jobs_cache_path
-
-    path = jobs_cache_path()
-    if not path.exists():
-        return prefix
-    records = json.loads(path.read_text())
-    matches = {r[field] for r in records if r.get(field, "").startswith(prefix)}
-    if len(matches) == 1:
-        return matches.pop()
-    if len(matches) > 1:
-        raise click.ClickException(
-            f"Ambiguous id prefix {prefix!r} matches {len(matches)} jobs — use more characters."
-        )
-    return prefix
-
-
 def _relative_time(iso_str: str) -> str:
     import datetime
 
@@ -638,7 +581,7 @@ def _relative_time(iso_str: str) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def _build_jobs_table(records: list[dict], job_details: dict, config, full_ids: bool):
+def _build_jobs_table(records: list[dict], job_details: dict, config):
     import datetime
 
     from rich.table import Table
@@ -647,11 +590,12 @@ def _build_jobs_table(records: list[dict], job_details: dict, config, full_ids: 
     now = datetime.datetime.now(datetime.UTC)
 
     table = Table(title="Batch jobs")
+    table.add_column("JOB ID", style="cyan", no_wrap=True)
+    table.add_column("NAME", no_wrap=True)
     table.add_column("SUBMITTED", style="dim", no_wrap=True)
     table.add_column("STATUS", no_wrap=True)
     table.add_column("N", justify="right", no_wrap=True)
     table.add_column("COST EST", style="magenta", no_wrap=True)
-    table.add_column("JOB ID", style="cyan", no_wrap=True)
 
     for r in reversed(records):
         detail = job_details.get(r["batch_job_id"], {})
@@ -684,32 +628,31 @@ def _build_jobs_table(records: list[dict], job_details: dict, config, full_ids: 
             except Exception:
                 cost_str = "?"
 
-        job_id = r["batch_job_id"] if full_ids else r["batch_job_id"][:8]
         table.add_row(
+            r["job_id"][:8],
+            r.get("name", ""),
             _relative_time(r["submitted_at"]),
             f"[{style}]{status}[/{style}]",
             str(r["n_inputs"]),
             cost_str,
-            job_id,
         )
     return table
 
 
-@cli.command()
+@batch.command("list")
 @click.option(
     "--n", default=10, show_default=True, help="Number of recent jobs to show."
 )
 @click.option(
     "--watch", is_flag=True, help="Refresh every 10 seconds until interrupted."
 )
-@click.option("--full", is_flag=True, help="Show full (untruncated) job IDs.")
 @click.option("--clear", is_flag=True, help="Clear job history and exit.")
 @click.option(
     "--prune",
     is_flag=True,
     help="Drop cached jobs AWS no longer recognizes (shown as UNKNOWN) and exit.",
 )
-def jobs(n: int, watch: bool, full: bool, clear: bool, prune: bool) -> None:
+def batch_list(n: int, watch: bool, clear: bool, prune: bool) -> None:
     """Show recent Batch jobs and their AWS status.
 
     STATUS shows UNKNOWN when AWS Batch's describe_jobs no longer recognizes
@@ -755,7 +698,7 @@ def jobs(n: int, watch: bool, full: bool, clear: bool, prune: bool) -> None:
         job_details = {
             j["jobId"]: j for j in batch_client.describe_jobs(batch, batch_ids)
         }
-        return _build_jobs_table(records, job_details, config, full)
+        return _build_jobs_table(records, job_details, config)
 
     if not watch:
         table = _fetch_table()
@@ -773,3 +716,45 @@ def jobs(n: int, watch: bool, full: bool, clear: bool, prune: bool) -> None:
                 time.sleep(10)
         except KeyboardInterrupt:
             pass
+
+
+@batch.command("status")
+@click.argument("job_id")
+def batch_status(job_id: str) -> None:
+    """Show a job's AWS state and done/failed/pending task counts."""
+    _print_job_status(_find_job(job_id)["job_id"], watch=False)
+
+
+@batch.command("wait")
+@click.argument("job_id")
+def batch_wait(job_id: str) -> None:
+    """Poll until the job finishes; exit 1 if any task failed."""
+    job_id = _find_job(job_id)["job_id"]
+    st = _print_job_status(job_id, watch=True)
+    if st.failed or not st.complete:
+        raise click.ClickException(f"Job {job_id} failed ({st.batch_state}).")
+
+
+@batch.command("logs")
+@click.argument("job_id")
+@click.option("--index", type=int, default=None, help="Array child index.")
+@click.option("--follow", "-f", is_flag=True, help="Keep printing until the job ends.")
+def batch_logs(job_id: str, index: int | None, follow: bool) -> None:
+    """Print a job's output from CloudWatch."""
+    batch_job_id = _find_job(job_id)["batch_job_id"]
+    if index is not None:
+        batch_job_id = f"{batch_job_id}:{index}"
+    _stream_logs(batch_job_id, load_config().region, follow)
+
+
+@batch.command("cancel")
+@click.argument("job_id")
+@click.option("--reason", default="cancelled by user", show_default=True)
+def batch_cancel(job_id: str, reason: str) -> None:
+    """Terminate a running or pending job (and all array children)."""
+    from braid.aws import batch_client
+
+    batch_job_id = _find_job(job_id)["batch_job_id"]
+    config = load_config()
+    batch_client.get_client(config.region).terminate_job(jobId=batch_job_id, reason=reason)
+    click.echo(f"Terminated {job_id} (Batch job {batch_job_id})")

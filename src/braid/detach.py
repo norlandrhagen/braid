@@ -18,7 +18,7 @@ from typing import Any
 
 from braid.aws import batch_client, s3_client
 from braid.config import Config, load_config
-from braid.core import _record_batch_job
+from braid.core import _fn_name, _record_batch_job
 from braid.errors import ConfigError, JobFailedError, WorkerError
 from braid.result_collector import _list_idx_keys, collect_results_s3
 from braid.sync import sync_editables, sync_uv_lock
@@ -226,7 +226,7 @@ def submit(
         fn, inputs, cfg, project_key, editable_manifest, detach=True
     )
     # Local record first: it is the only trace of the job if the S3 write fails.
-    _record_batch_job(job_id, batch_job_id, n, cfg)
+    _record_batch_job(job_id, batch_job_id, n, cfg, name=_fn_name(fn))
     try:
         _write_job_record(job_id, batch_job_id, n, cfg)
     except Exception:

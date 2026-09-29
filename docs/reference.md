@@ -14,10 +14,12 @@ braid status                      Check backend resources and SQS are reachable
 braid layers                      List cached layer ARNs
 braid dry-run                     Serialize a function and print payload sizes
 braid clean          <job_id>     Delete S3 artifacts for a completed job
-braid jobs                        Show recent Batch jobs and live AWS status
-braid jobs --watch                Auto-refresh every 10 s (shows accruing cost)
-braid cancel  <batch_job_id>      Terminate a running or pending Batch job
-braid logs    <job_id> [-f]       Print a Batch job's output (--index N for array children)
+braid batch run    <script>       Submit a script as a Batch job (--wait to stream logs)
+braid batch list                  Show recent Batch jobs and live AWS status (--watch)
+braid batch status <job_id>       AWS state and done/failed/pending task counts
+braid batch wait   <job_id>       Block until the job ends; exit 1 on failure
+braid batch logs   <job_id> [-f]  Print a job's output (--index N for array children)
+braid batch cancel <job_id>       Terminate a running or pending Batch job
 ```
 
 `braid --verbose <command>` raises the log level to DEBUG.
