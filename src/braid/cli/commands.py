@@ -303,8 +303,8 @@ def clean(job_id: str) -> None:
 
 
 def _find_job(prefix: str) -> dict:
-    """Jobs-cache record whose braid or Batch job id starts with `prefix`. With no
-    match, echoes `prefix` as both ids so AWS/S3 give their own not-found error."""
+    """Job whose braid or Batch job id starts with `prefix`: jobs cache first, then
+    AWS. With no match, echoes `prefix` as both ids so AWS/S3 give their own error."""
     from braid.config import jobs_cache_path
 
     path = jobs_cache_path()
@@ -315,6 +315,21 @@ def _find_job(prefix: str) -> dict:
         if r.get("job_id", "").startswith(prefix)
         or r.get("batch_job_id", "").startswith(prefix)
     }
+    if not matches:
+        # Not submitted from here: look for it on AWS by its braid-<job_id> name.
+        from braid.aws import batch_client
+
+        config = load_config()
+        batch = batch_client.get_client(config.region)
+        matches = {
+            j["jobName"].removeprefix("braid-"): {
+                "job_id": j["jobName"].removeprefix("braid-"),
+                "batch_job_id": j["jobId"],
+            }
+            for j in batch_client.list_braid_jobs(batch, config.batch_job_queue)
+            if j["jobName"].removeprefix("braid-").startswith(prefix)
+            or j["jobId"].startswith(prefix)
+        }
     if len(matches) > 1:
         raise click.ClickException(
             f"Ambiguous id prefix {prefix!r} matches {len(matches)} jobs — use more characters."
@@ -581,13 +596,13 @@ def _relative_time(iso_str: str) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def _build_jobs_table(records: list[dict], job_details: dict, config):
+def _build_jobs_table(summaries: list[dict], names: dict[str, str], config):
     import datetime
 
     from rich.table import Table
 
     is_ec2 = bool(config.batch_instance_types)
-    now = datetime.datetime.now(datetime.UTC)
+    now_ms = datetime.datetime.now(datetime.UTC).timestamp() * 1000
 
     table = Table(title="Batch jobs")
     table.add_column("JOB ID", style="cyan", no_wrap=True)
@@ -597,43 +612,23 @@ def _build_jobs_table(records: list[dict], job_details: dict, config):
     table.add_column("N", justify="right", no_wrap=True)
     table.add_column("COST EST", style="magenta", no_wrap=True)
 
-    for r in reversed(records):
-        detail = job_details.get(r["batch_job_id"], {})
-        status = detail.get("status", "UNKNOWN")
+    for j in summaries:
+        status = j["status"]
         style = _STATUS_STYLE.get(status, "white")
-
-        if status == "UNKNOWN":
-            cost_str = "-"  # AWS purged the job; no stop time to price
-        elif is_ec2:
+        if is_ec2:
             cost_str = "EC2/varies"
         else:
-            try:
-                submitted = datetime.datetime.fromisoformat(r["submitted_at"])
-                if status in ("SUCCEEDED", "FAILED"):
-                    # Use stoppedAt from AWS if available, else fall back to now
-                    stopped_ms = detail.get("stoppedAt")
-                    end = (
-                        datetime.datetime.fromtimestamp(
-                            stopped_ms / 1000, tz=datetime.UTC
-                        )
-                        if stopped_ms
-                        else now
-                    )
-                else:
-                    end = now
-                elapsed_s = max(0.0, (end - submitted).total_seconds())
-                cost_str = _fargate_cost_estimate(
-                    config.batch_vcpu, config.batch_memory_mb, elapsed_s
-                )
-            except Exception:
-                cost_str = "?"
-
+            elapsed_s = max(0.0, (j.get("stoppedAt") or now_ms) - j["createdAt"]) / 1000
+            cost_str = _fargate_cost_estimate(
+                config.batch_vcpu, config.batch_memory_mb, elapsed_s
+            )
+        submitted = datetime.datetime.fromtimestamp(j["createdAt"] / 1000, datetime.UTC)
         table.add_row(
-            r["job_id"][:8],
-            r.get("name", ""),
-            _relative_time(r["submitted_at"]),
+            j["jobName"].removeprefix("braid-"),
+            names.get(j["jobId"], "(other)"),
+            _relative_time(submitted.isoformat()),
             f"[{style}]{status}[/{style}]",
-            str(r["n_inputs"]),
+            str(j.get("arrayProperties", {}).get("size", 1)),
             cost_str,
         )
     return table
@@ -646,18 +641,11 @@ def _build_jobs_table(records: list[dict], job_details: dict, config):
 @click.option(
     "--watch", is_flag=True, help="Refresh every 10 seconds until interrupted."
 )
-@click.option("--clear", is_flag=True, help="Clear job history and exit.")
-@click.option(
-    "--prune",
-    is_flag=True,
-    help="Drop cached jobs AWS no longer recognizes (shown as UNKNOWN) and exit.",
-)
-def batch_list(n: int, watch: bool, clear: bool, prune: bool) -> None:
-    """Show recent Batch jobs and their AWS status.
+def batch_list(n: int, watch: bool) -> None:
+    """Show recent braid jobs on every braid* Batch queue in the configured region.
 
-    STATUS shows UNKNOWN when AWS Batch's describe_jobs no longer recognizes
-    the cached batch_job_id — e.g. wrong region, or the job fell out of
-    Batch's job history retention window. Use --prune to drop those rows.
+    Lists from AWS, so jobs from other machines or projects show up too (NAME
+    "(other)"). AWS keeps finished jobs ~7 days; active jobs always show.
     """
     from rich.console import Console
     from rich.live import Live
@@ -665,54 +653,27 @@ def batch_list(n: int, watch: bool, clear: bool, prune: bool) -> None:
     from braid.aws import batch_client
     from braid.config import jobs_cache_path
 
-    path = jobs_cache_path()
-
-    if clear:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("[]")
-        click.echo("Cleared job history.")
-        return
-
-    if not path.exists():
-        click.echo("No jobs recorded.")
-        return
-
     config = load_config()
     batch = batch_client.get_client(config.region)
     console = Console()
 
-    if prune:
-        records = json.loads(path.read_text())
-        batch_ids = list(dict.fromkeys(r["batch_job_id"] for r in records))
-        known = {j["jobId"] for j in batch_client.describe_jobs(batch, batch_ids)}
-        kept = [r for r in records if r["batch_job_id"] in known]
-        path.write_text(json.dumps(kept, indent=2))
-        click.echo(f"Pruned {len(records) - len(kept)} unknown job(s).")
-        return
-
     def _fetch_table():
-        records = json.loads(path.read_text())[-n:] if path.exists() else []
-        if not records:
-            return None
-        batch_ids = list(dict.fromkeys(r["batch_job_id"] for r in records))
-        job_details = {
-            j["jobId"]: j for j in batch_client.describe_jobs(batch, batch_ids)
-        }
-        return _build_jobs_table(records, job_details, config)
+        summaries = batch_client.list_braid_jobs(batch, config.batch_job_queue)[:n]
+        if not summaries:
+            return "No braid jobs on AWS in the last ~7 days."
+        path = jobs_cache_path()
+        records = json.loads(path.read_text()) if path.exists() else []
+        names = {r["batch_job_id"]: r.get("name") or "" for r in records}
+        return _build_jobs_table(summaries, names, config)
 
     if not watch:
-        table = _fetch_table()
-        if table is None:
-            click.echo("No jobs recorded.")
-            return
-        console.print(table)
+        console.print(_fetch_table())
         return
 
     with Live(console=console, refresh_per_second=4, screen=False) as live:
         try:
             while True:
-                table = _fetch_table()
-                live.update(table if table is not None else "No jobs recorded.")
+                live.update(_fetch_table())
                 time.sleep(10)
         except KeyboardInterrupt:
             pass

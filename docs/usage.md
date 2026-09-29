@@ -315,7 +315,7 @@ resources even if `backend = "lambda"`) — `batch_execution_role_arn` must be s
 These commands work for script jobs and for `fan`/`submit` Batch jobs. Any unique id prefix works.
 
 ```bash
-uv run braid batch list --watch             # recent jobs, AWS state, cost estimate
+uv run braid batch list --watch             # all braid jobs on AWS (any machine), state, cost
 uv run braid batch status <job_id>          # done/failed/pending — done=1 means exit code 0
 uv run braid batch wait <job_id>            # block until done; exit 1 on failure
 uv run braid batch logs -f <job_id>         # stream output (--index N for array children)

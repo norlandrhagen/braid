@@ -13,6 +13,12 @@ class TestCleanCommand:
     def runner(self):
         return CliRunner()
 
+    @pytest.fixture(autouse=True)
+    def no_aws_job_lookup(self, mocker, tmp_path):
+        mocker.patch("braid.config.jobs_cache_path", return_value=tmp_path / "none.json")
+        mocker.patch("braid.aws.batch_client.get_client")
+        mocker.patch("braid.aws.batch_client.list_braid_jobs", return_value=[])
+
     def test_clean_with_bucket_prefix(self, runner, mocker):
         """Test that 'clean' uses config.s3_key when bucket_prefix is set."""
         config = Config(
@@ -242,3 +248,28 @@ def test_logs_pages_until_token_repeats_and_resolves_braid_id(mocker, tmp_path):
     assert result.exit_code == 0, result.output
     assert result.output == "one\ntwo\n"
     assert describe.call_args.args[1] == ["batch-123"]
+
+
+def test_list_braid_jobs_covers_all_braid_queues_newest_first():
+    from braid.aws.batch_client import list_braid_jobs
+
+    client = MagicMock()
+    queues = [{"jobQueues": [{"jobQueueName": "braid-queue"}, {"jobQueueName": "other"}]}]
+    jobs = {
+        "braid-queue": [{"jobName": "braid-a", "createdAt": 1}],
+        "custom": [{"jobName": "braid-b", "createdAt": 2}],
+    }
+
+    def paginator(op):
+        pag = MagicMock()
+        if op == "describe_job_queues":
+            pag.paginate.return_value = queues
+        else:
+            pag.paginate.side_effect = lambda jobQueue, filters: [
+                {"jobSummaryList": jobs[jobQueue]}
+            ]
+        return pag
+
+    client.get_paginator.side_effect = paginator
+    result = list_braid_jobs(client, extra_queue="custom")
+    assert [j["jobName"] for j in result] == ["braid-b", "braid-a"]

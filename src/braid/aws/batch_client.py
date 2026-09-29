@@ -183,3 +183,26 @@ def submit_array_job(
         timeout={"attemptDurationSeconds": timeout_s},
     )
     return resp["jobId"]
+
+
+def list_braid_jobs(client, extra_queue: str = "") -> list[dict]:
+    """Job summaries named braid-* on every braid* queue (plus `extra_queue`), newest
+    first. All states; AWS keeps finished jobs ~7 days, active ones indefinitely."""
+    queues = {
+        q["jobQueueName"]
+        for page in client.get_paginator("describe_job_queues").paginate()
+        for q in page["jobQueues"]
+        if q["jobQueueName"].startswith("braid")
+    }
+    if extra_queue:
+        queues.add(extra_queue)
+    jobs = [
+        j
+        for queue in queues
+        # With filters, list_jobs ignores jobStatus and returns every state.
+        for page in client.get_paginator("list_jobs").paginate(
+            jobQueue=queue, filters=[{"name": "JOB_NAME", "values": ["braid-*"]}]
+        )
+        for j in page["jobSummaryList"]
+    ]
+    return sorted(jobs, key=lambda j: j["createdAt"], reverse=True)

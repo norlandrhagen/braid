@@ -15,7 +15,7 @@ braid layers                      List cached layer ARNs
 braid dry-run                     Serialize a function and print payload sizes
 braid clean          <job_id>     Delete S3 artifacts for a completed job
 braid batch run    <script>       Submit a script as a Batch job (--wait to stream logs)
-braid batch list                  Show recent Batch jobs and live AWS status (--watch)
+braid batch list                  All braid jobs on AWS in the region, from any machine (--watch)
 braid batch status <job_id>       AWS state and done/failed/pending task counts
 braid batch wait   <job_id>       Block until the job ends; exit 1 on failure
 braid batch logs   <job_id> [-f]  Print a job's output (--index N for array children)
