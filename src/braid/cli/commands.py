@@ -596,10 +596,18 @@ def _relative_time(iso_str: str) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
+def _iso_from_ms(ms: int) -> str:
+    import datetime
+
+    return datetime.datetime.fromtimestamp(ms / 1000, datetime.UTC).isoformat()
+
+
 def _build_jobs_table(summaries: list[dict], names: dict[str, str], config):
     import datetime
 
     from rich.table import Table
+
+    from braid.detach import _s3_idx_sets
 
     is_ec2 = bool(config.batch_instance_types)
     now_ms = datetime.datetime.now(datetime.UTC).timestamp() * 1000
@@ -608,8 +616,9 @@ def _build_jobs_table(summaries: list[dict], names: dict[str, str], config):
     table.add_column("JOB ID", style="cyan", no_wrap=True)
     table.add_column("NAME", no_wrap=True)
     table.add_column("SUBMITTED", style="dim", no_wrap=True)
+    table.add_column("FINISHED", style="dim", no_wrap=True)
     table.add_column("STATUS", no_wrap=True)
-    table.add_column("N", justify="right", no_wrap=True)
+    table.add_column("TASKS", justify="right", no_wrap=True)
     table.add_column("COST EST", style="magenta", no_wrap=True)
 
     for j in summaries:
@@ -622,13 +631,22 @@ def _build_jobs_table(summaries: list[dict], names: dict[str, str], config):
             cost_str = _fargate_cost_estimate(
                 config.batch_vcpu, config.batch_memory_mb, elapsed_s
             )
-        submitted = datetime.datetime.fromtimestamp(j["createdAt"] / 1000, datetime.UTC)
+        n = j.get("arrayProperties", {}).get("size", 1)
+        job_id = j["jobName"].removeprefix("braid-")
+        tasks = str(n)
+        if status not in ("SUCCEEDED", "FAILED"):
+            # Live progress from S3 markers; skipped for finished jobs (may be cleaned up).
+            done, failed = _s3_idx_sets(
+                config.bucket, config.s3_key(f"jobs/{job_id}/"), config.region
+            )
+            tasks = f"{len(done)}/{n}" + (f" ({len(failed)} failed)" if failed else "")
         table.add_row(
-            j["jobName"].removeprefix("braid-"),
+            job_id,
             names.get(j["jobId"], "(other)"),
-            _relative_time(submitted.isoformat()),
+            _relative_time(_iso_from_ms(j["createdAt"])),
+            _relative_time(_iso_from_ms(j["stoppedAt"])) if j.get("stoppedAt") else "-",
             f"[{style}]{status}[/{style}]",
-            str(j.get("arrayProperties", {}).get("size", 1)),
+            tasks,
             cost_str,
         )
     return table
