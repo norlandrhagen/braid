@@ -332,6 +332,36 @@ def batch() -> None:
     """Run coiled-batch-style script jobs on AWS Batch."""
 
 
+def _script_header_opts(ctx: click.Context, script: str) -> dict:
+    """Parse `# BRAID key=value ...` lines into batch_run params, skipping flags set on the CLI."""
+    import shlex
+    from pathlib import Path
+
+    opts = {
+        o.lstrip("-"): p
+        for p in ctx.command.params
+        if isinstance(p, click.Option)
+        for o in p.opts
+    }
+    raw: dict[str, list[str]] = {}
+    for line in Path(script).read_text().splitlines():
+        if not line.startswith("# BRAID "):
+            continue
+        for tok in shlex.split(line[len("# BRAID ") :]):
+            key, sep, value = tok.partition("=")
+            if not sep or key not in opts:
+                raise click.ClickException(f"Invalid # BRAID option: {tok!r}")
+            raw.setdefault(opts[key].name, []).append(value)
+
+    out = {}
+    for name, values in raw.items():
+        if ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE:
+            continue
+        param = next(p for p in ctx.command.params if p.name == name)
+        out[name] = param.type_cast_value(ctx, values if param.multiple else values[-1])
+    return out
+
+
 @batch.command("run")
 @click.argument("script", type=click.Path(exists=True, dir_okay=False, path_type=str))
 @click.option("--vcpu", type=float, default=None, help="vCPU for the job.")
@@ -364,11 +394,24 @@ def batch_run(
     env_vars: tuple[str, ...],
     region: str | None,
 ) -> None:
-    """Submit SCRIPT as a single fire-and-forget AWS Batch job."""
+    """Submit SCRIPT as a single fire-and-forget AWS Batch job.
+
+    Options can also be set in the script with lines like
+    `# BRAID memory=8192 vcpu=4`; CLI flags take precedence.
+    """
     from pathlib import Path
 
     from braid.dispatch_batch import _has_pep723_header, submit_script
     from braid.sync import sync_editables, sync_uv_lock
+
+    header = _script_header_opts(click.get_current_context(), script)
+    vcpu = header.get("vcpu", vcpu)
+    memory = header.get("memory", memory)
+    disk_gib = header.get("disk_gib", disk_gib)
+    instance_types = header.get("instance_types", instance_types)
+    image = header.get("image", image)
+    env_vars = header.get("env_vars", env_vars)
+    region = header.get("region", region)
 
     config = load_config()
 
