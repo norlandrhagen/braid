@@ -220,10 +220,10 @@ def submit(
     from braid.dispatch_batch import submit_batch
 
     editable_manifest = sync_editables(cfg)
-    requirements_key = sync_uv_lock(cfg)
+    project_key = sync_uv_lock(cfg)
 
     job_id, n, batch_job_id = submit_batch(
-        fn, inputs, cfg, requirements_key, editable_manifest, detach=True
+        fn, inputs, cfg, project_key, editable_manifest, detach=True
     )
     # Local record first: it is the only trace of the job if the S3 write fails.
     _record_batch_job(job_id, batch_job_id, n, cfg)

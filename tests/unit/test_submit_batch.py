@@ -182,7 +182,7 @@ class TestSubmitBatchJobSubmission:
         assert env["BRAID_JOB_ID"] == job_id
         assert env["BRAID_BUCKET"] == BUCKET
         assert env["BRAID_SQS_QUEUE_URL"] == queue_url
-        assert env["BRAID_REQUIREMENTS_KEY"] == "req-key"
+        assert "req-key" in env["BRAID_PROJECT_URL"]
         assert "BRAID_WORKER_URL" in env
         assert "BRAID_COMMON_URL" in env
 
@@ -271,3 +271,41 @@ class TestSubmitBatchDetach:
         submit_batch(lambda x: x, [1, 2, 3], cfg, "", [])
 
         assert "BRAID_DETACH" not in aws_s3["submitted"][0]["env_overrides"]
+
+
+def test_job_definition_per_config_does_not_clobber_shared(mocker):
+    """A `batch run --memory` override must not re-register the def `fan` uses."""
+    from braid.dispatch_batch import _ensure_job_definition
+
+    mocker.patch("braid.aws.batch_client.get_client")
+    register = mocker.patch("braid.aws.batch_client.register_job_definition")
+
+    base = _make_config()
+    big = base.model_copy(update={"batch_memory_mb": 16384})
+
+    base_name = _ensure_job_definition(base)
+    big_name = _ensure_job_definition(big)
+
+    assert base_name != big_name
+    assert base_name.startswith("braid-job-")
+    assert register.call_count == 2
+    # Both cached: switching back re-registers nothing.
+    assert _ensure_job_definition(base) == base_name
+    assert _ensure_job_definition(big) == big_name
+    assert register.call_count == 2
+
+
+def test_init_batch_resources_are_reused(mocker):
+    """Re-running `braid init` must not fail on an existing CE / job queue."""
+    from braid.aws import batch_client
+
+    client = mocker.Mock()
+    client.describe_compute_environments.return_value = {
+        "computeEnvironments": [{"computeEnvironmentArn": "ce-arn", "status": "VALID"}]
+    }
+    client.describe_job_queues.return_value = {"jobQueues": [{"jobQueueArn": "q-arn"}]}
+
+    assert batch_client.create_compute_environment(client, "ce", [], []) == "ce-arn"
+    assert batch_client.create_job_queue(client, "q", "ce-arn") == "q-arn"
+    client.create_compute_environment.assert_not_called()
+    client.create_job_queue.assert_not_called()

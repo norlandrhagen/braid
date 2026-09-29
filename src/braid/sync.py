@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import os
@@ -235,26 +236,57 @@ def _build_layer_zip(config: Config, tmp_dir: Path) -> Path:
     return zip_path
 
 
-def sync_uv_lock(config: Config) -> str:
-    """Export requirements.txt from uv.lock, upload to S3. Return S3 key."""
-    project_root = _find_project_root().resolve()
-    lock_hash = hash_uv_lock()
-    req_s3_key = config.s3_key(f"layers/{lock_hash}/requirements.txt")
-    s3 = s3_client.get_client(config.region)
-    if s3_client.key_exists(s3, config.bucket, req_s3_key):
-        log.debug("requirements.txt already on S3: %s", req_s3_key)
-        return req_s3_key
+def _project_files(project_root: Path) -> list[Path]:
+    """Git-tracked plus untracked-but-not-ignored files, always incl. uv.lock."""
     result = subprocess.run(
-        ["uv", "export", "--frozen", "--no-dev", "--no-editable"],
+        ["git", "ls-files", "-co", "--exclude-standard", "-z"],
         cwd=project_root,
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        raise LayerBuildError(f"uv export failed:\n{result.stderr}")
-    s3_client.upload_bytes(s3, config.bucket, req_s3_key, result.stdout.encode())
-    log.info("requirements.txt uploaded: s3://%s/%s", config.bucket, req_s3_key)
-    return req_s3_key
+        raise LayerBuildError(
+            f"git ls-files failed; Batch project sync needs a git repo:\n{result.stderr}"
+        )
+    names = {n for n in result.stdout.split("\0") if n} | {"uv.lock", "pyproject.toml"}
+    return sorted(project_root / n for n in names if (project_root / n).is_file())
+
+
+def sync_uv_lock(config: Config) -> str:
+    """Zip the project (uv.lock, pyproject.toml, source), upload to S3. Return S3 key.
+
+    Workers run `uv sync --frozen` against it, so they get exactly the locked env
+    plus the project itself.
+    """
+    project_root = _find_project_root().resolve()
+    hash_uv_lock()  # fail early without a lockfile
+    # ponytail: ships every git-tracked file; add an exclude list if repos carry big data
+    files = _project_files(project_root)
+
+    hasher = hashlib.sha256()
+    for f in files:
+        hasher.update(str(f.relative_to(project_root)).encode())
+        hasher.update(f.read_bytes())
+    key = config.s3_key(f"projects/{hasher.hexdigest()[:16]}/project.zip")
+
+    s3 = s3_client.get_client(config.region)
+    if s3_client.key_exists(s3, config.bucket, key):
+        log.debug("Project zip already on S3: %s", key)
+        return key
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            zf.write(f, f.relative_to(project_root))
+    s3_client.upload_bytes(s3, config.bucket, key, buf.getvalue())
+    log.info(
+        "Project uploaded: s3://%s/%s (%d files, %.1f MB)",
+        config.bucket,
+        key,
+        len(files),
+        len(buf.getvalue()) / 1024 / 1024,
+    )
+    return key
 
 
 def get_or_build_layer_s3(config: Config, force: bool = False) -> str:

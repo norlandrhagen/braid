@@ -82,16 +82,15 @@ def sync(force: bool = False, exclude_packages: list[str] | None = None) -> str:
 def _sync_batch(config: Config, force: bool = False) -> str:
     from braid.dispatch_batch import _ensure_job_definition
 
-    requirements_key = sync_uv_lock(config)
-    log.info("requirements.txt S3 key: %s", requirements_key)
+    project_key = sync_uv_lock(config)
+    log.info("Project S3 key: %s", project_key)
 
     manifest = sync_editables(config)
     if manifest:
         log.info("Editable packages synced: %s", [m["name"] for m in manifest])
 
-    _ensure_job_definition(config)
-    log.info("Batch job definition ready: %s", config.batch_job_definition)
-    return requirements_key
+    log.info("Batch job definition ready: %s", _ensure_job_definition(config))
+    return project_key
 
 
 def init(
@@ -167,7 +166,8 @@ def init(
 
     s3 = s3_client.get_client(region)
     try:
-        s3_client.set_lifecycle_rule(s3, bucket, "jobs/", expiry_days=3)
+        jobs_prefix = f"{bucket_prefix.strip('/')}/jobs/" if bucket_prefix else "jobs/"
+        s3_client.set_lifecycle_rule(s3, bucket, jobs_prefix, expiry_days=3)
     except Exception as e:
         log.warning("Could not set S3 lifecycle rule: %s", e)
 

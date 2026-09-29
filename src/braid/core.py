@@ -407,7 +407,7 @@ def _fan_batch(
     s3 = s3_client.get_client(cfg.region)
     batch = batch_client.get_client(cfg.region)
     editable_manifest = sync_editables(cfg)
-    requirements_key = sync_uv_lock(cfg)
+    project_key = sync_uv_lock(cfg)
 
     collected: dict[int, Any] = {}
     attempt = 0
@@ -416,7 +416,7 @@ def _fan_batch(
 
     while True:
         job_id, _, batch_job_id = submit_batch(
-            fn, current_inputs, cfg, requirements_key, editable_manifest
+            fn, current_inputs, cfg, project_key, editable_manifest
         )
         _record_batch_job(job_id, batch_job_id, len(current_inputs), cfg)
 

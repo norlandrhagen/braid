@@ -397,11 +397,11 @@ def batch_run(
     script_path = Path(script)
     if _has_pep723_header(script_path):
         click.echo("PEP 723 header detected — inline deps via `uv run`.")
-        requirements_key = ""
+        project_key = ""
         editable_manifest: list[dict] = []
     else:
         click.echo("No inline script metadata — syncing project env from uv.lock.")
-        requirements_key = sync_uv_lock(config)
+        project_key = sync_uv_lock(config)
         editable_manifest = sync_editables(config)
 
     env_passthrough: dict[str, str] = {}
@@ -414,7 +414,7 @@ def batch_run(
     job_id, batch_job_id = submit_script(
         script_path,
         config,
-        requirements_s3_key=requirements_key,
+        project_s3_key=project_key,
         editable_manifest=editable_manifest,
         env_passthrough=env_passthrough or None,
     )

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import time
 
 import boto3
+
+log = logging.getLogger(__name__)
 
 
 def get_client(region: str):
@@ -18,6 +21,13 @@ def create_compute_environment(
     spot: bool = False,
     instance_types: list[str] | None = None,
 ) -> str:
+    existing = client.describe_compute_environments(computeEnvironments=[name])
+    if existing["computeEnvironments"]:
+        ce = existing["computeEnvironments"][0]
+        # ponytail: reused as-is; delete it to apply new subnets/instance types
+        log.info("Compute environment %s exists (%s), reusing", name, ce["status"])
+        return ce["computeEnvironmentArn"]
+
     use_ec2 = bool(instance_types)
     if use_ec2:
         ce_type = "SPOT" if spot else "EC2"
@@ -77,6 +87,10 @@ def wait_for_compute_environment_valid(
 
 
 def create_job_queue(client, name: str, compute_env_arn: str) -> str:
+    existing = client.describe_job_queues(jobQueues=[name])["jobQueues"]
+    if existing:
+        log.info("Job queue %s exists, reusing", name)
+        return existing[0]["jobQueueArn"]
     resp = client.create_job_queue(
         jobQueueName=name,
         state="ENABLED",

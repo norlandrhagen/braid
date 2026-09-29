@@ -9,7 +9,6 @@ import base64
 import json
 import logging
 import os
-import subprocess
 import sys
 import traceback
 
@@ -17,40 +16,21 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message
 log = logging.getLogger("braid.worker_batch")
 
 
-def _bootstrap_uv_sync() -> None:
-    req_key = os.environ.get("BRAID_REQUIREMENTS_KEY")
-    if not req_key:
-        return
-    import boto3
-
-    bucket = os.environ["BRAID_BUCKET"]
-    s3 = boto3.client("s3")
-    req_path = "/tmp/requirements.txt"
-    log.info("Downloading requirements.txt from s3://%s/%s", bucket, req_key)
-    s3.download_file(bucket, req_key, req_path)
-    result = subprocess.run(
-        ["uv", "pip", "install", "--system", "-r", req_path],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"uv pip install failed:\n{result.stderr}")
-    log.info("uv sync complete")
-
-
 def main() -> None:
-    _bootstrap_uv_sync()
-
     # In production _worker_common.py is downloaded alongside this script.
     # In tests it lives in the same package directory.
-    import os as _os
-
-    _worker_dir = _os.path.dirname(_os.path.abspath(__file__))
+    _worker_dir = os.path.dirname(os.path.abspath(__file__))
     for _p in (_worker_dir, "/tmp"):
         if _p not in sys.path:
             sys.path.insert(0, _p)
-    from _worker_common import bootstrap_editables, send_error, send_result
+    from _worker_common import (
+        bootstrap_editables,
+        bootstrap_uv_sync,
+        send_error,
+        send_result,
+    )
 
+    bootstrap_uv_sync()
     bootstrap_editables()
 
     import boto3
