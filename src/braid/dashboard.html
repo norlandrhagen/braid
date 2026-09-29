@@ -89,6 +89,12 @@ main { overflow-y: auto; padding: 24px 32px 64px; }
 
 .u-select { background: color-mix(in srgb, var(--text) 10%, transparent); }
 .uplot { font-family: var(--mono); }
+.tip {
+  position: absolute; display: none; pointer-events: none; z-index: 10; white-space: nowrap;
+  background: var(--background); border: 1px solid var(--muted); border-radius: 1px;
+  padding: 6px 10px; font-size: 12px; line-height: 1.6;
+}
+.tip b { font-family: var(--mono); font-weight: 400; margin-left: 4px; }
 
 pre.logs {
   font-family: var(--mono); font-size: 12px; letter-spacing: 0.02em; background: var(--hinted);
@@ -338,11 +344,20 @@ function drawCharts() {
           if (min > xs[0] || max < xs.at(-1)) setX({ min, max });
         }],
         setCursor: [u => {
-          const i = u.cursor.idx ?? u.data[0].length - 1;
+          const idx = u.cursor.idx, i = idx ?? u.data[0].length - 1;
           leg.querySelectorAll('.v').forEach((el, k) => el.textContent = p.fmt(u.data[k + 1][i]));
+          const tip = u.over.querySelector('.tip');
+          if (idx == null) { tip.style.display = 'none'; return; }
+          tip.innerHTML = `<div class="caps">${new Date(u.data[0][idx] * 1000).toLocaleTimeString([], { hour12: false })}</div>` +
+            p.series.map((se, k) => `<div><span class="dot" style="background:${css('--' + se.color)}"></span> ${se.label} <b>${p.fmt(u.data[k + 1][idx])}</b></div>`).join('');
+          tip.style.display = 'block';
+          const x = u.cursor.left, flip = x > u.over.clientWidth - tip.offsetWidth - 16;
+          tip.style.left = `${flip ? x - tip.offsetWidth - 12 : x + 12}px`;
+          tip.style.top = `${Math.max(0, Math.min(u.cursor.top - tip.offsetHeight / 2, u.over.clientHeight - tip.offsetHeight))}px`;
         }],
       },
     }, panelData(p), el);
+    u.over.insertAdjacentHTML('beforeend', '<div class="tip"></div>');
     charts.push({ p, el, leg, u });
   }
   updateLegends();
@@ -380,7 +395,10 @@ async function loadJob() {
   if (id !== taskId()) return; // selection changed mid-request
   const hadStream = state.job?.has_stream;
   state.job = r.job;
-  state.samples.push(...r.samples);
+  // Overlapping polls can return the same samples; dedupe by time and keep sorted.
+  const seen = new Set(state.samples.map(s => s.t));
+  state.samples.push(...r.samples.filter(s => !seen.has(s.t)));
+  state.samples.sort((a, b) => a.t - b.t);
   renderStats();
   if (r.samples.length || hadStream !== r.job.has_stream) updateCharts();
 }
