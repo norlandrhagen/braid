@@ -45,7 +45,13 @@ def aws_s3(mocker):
         submitted: list[dict] = []
 
         def _capture_array_submit(
-            client, job_def_name, queue_name, job_id, array_size, env_overrides
+            client,
+            job_def_name,
+            queue_name,
+            job_id,
+            array_size,
+            env_overrides,
+            timeout_s,
         ):
             fake_id = str(uuid.uuid4())
             submitted.append(
@@ -62,7 +68,7 @@ def aws_s3(mocker):
             return fake_id
 
         def _capture_single_submit(
-            client, job_def_name, queue_name, job_id, env_overrides
+            client, job_def_name, queue_name, job_id, env_overrides, timeout_s
         ):
             fake_id = str(uuid.uuid4())
             submitted.append(

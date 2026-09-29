@@ -69,7 +69,9 @@ def _make_config(queue_url: str) -> Config:
 
 
 def _make_submit_side_effect():
-    def _submit(client, job_def_name, queue_name, job_id, array_size, env_overrides):
+    def _submit(
+        client, job_def_name, queue_name, job_id, array_size, env_overrides, timeout_s
+    ):
         old = {
             k: os.environ.get(k)
             for k in list(env_overrides) + ["AWS_BATCH_JOB_ARRAY_INDEX"]

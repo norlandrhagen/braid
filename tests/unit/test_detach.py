@@ -43,7 +43,13 @@ def aws_s3(mocker):
         submitted: list[dict] = []
 
         def _capture_array_submit(
-            client, job_def_name, queue_name, job_id, array_size, env_overrides
+            client,
+            job_def_name,
+            queue_name,
+            job_id,
+            array_size,
+            env_overrides,
+            timeout_s,
         ):
             submitted.append({"job_id": job_id, "env_overrides": env_overrides})
             return "aws-batch-job-id"

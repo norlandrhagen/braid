@@ -84,6 +84,7 @@ batch_job_definition = "braid-job"
 batch_vcpu = 2.0
 batch_memory_mb = 4096
 batch_ephemeral_storage_gib = 21        # 21–200
+batch_timeout_s = 86400                 # AWS kills jobs running longer (min 60)
 batch_image = ""                        # custom base image; default is the uv slim image
 batch_instance_types = []               # empty = Fargate; set = EC2
 batch_execution_role_arn = ""

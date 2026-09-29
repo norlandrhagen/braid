@@ -101,7 +101,7 @@ def aws_s3(mocker):
         submitted: list[dict] = []
 
         def _capture_single_submit(
-            client, job_def_name, queue_name, job_id, env_overrides
+            client, job_def_name, queue_name, job_id, env_overrides, timeout_s
         ):
             fake_id = str(uuid.uuid4())
             submitted.append(
@@ -110,6 +110,7 @@ def aws_s3(mocker):
                     "queue_name": queue_name,
                     "job_id": job_id,
                     "env_overrides": env_overrides,
+                    "timeout_s": timeout_s,
                     "batch_job_id": fake_id,
                 }
             )
@@ -227,6 +228,7 @@ class TestSubmitScriptJobSubmission:
         assert submitted[0]["job_id"] == job_id
         assert submitted[0]["batch_job_id"] == batch_job_id
         assert "array_size" not in submitted[0]
+        assert submitted[0]["timeout_s"] == 86400
 
     def test_returns_correct_tuple(self, aws_s3, tmp_path):
         cfg = _make_config()

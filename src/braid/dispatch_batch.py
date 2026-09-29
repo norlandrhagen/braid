@@ -211,6 +211,7 @@ def submit_batch(
             queue_name=config.batch_job_queue,
             job_id=job_id,
             env_overrides=env_overrides,
+            timeout_s=config.batch_timeout_s,
         )
         log.info(
             "Submitted Batch single job %s (braid job_id=%s, n=1)",
@@ -226,6 +227,7 @@ def submit_batch(
             job_id=job_id,
             array_size=len(inputs),
             env_overrides=env_overrides,
+            timeout_s=config.batch_timeout_s,
         )
         log.info(
             "Submitted Batch array job %s (braid job_id=%s, n=%d)",
@@ -303,6 +305,7 @@ def submit_script(
         queue_name=config.batch_job_queue,
         job_id=job_id,
         env_overrides=env_overrides,
+        timeout_s=config.batch_timeout_s,
     )
     log.info(
         "Submitted Batch script job %s (braid job_id=%s, mode=%s)",
