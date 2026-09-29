@@ -17,6 +17,7 @@ braid clean          <job_id>     Delete S3 artifacts for a completed job
 braid jobs                        Show recent Batch jobs and live AWS status
 braid jobs --watch                Auto-refresh every 10 s (shows accruing cost)
 braid cancel  <batch_job_id>      Terminate a running or pending Batch job
+braid logs    <job_id> [-f]       Print a Batch job's output (--index N for array children)
 ```
 
 `braid --verbose <command>` raises the log level to DEBUG.

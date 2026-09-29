@@ -327,6 +327,84 @@ def cancel(batch_job_id: str, reason: str) -> None:
     click.echo(f"Terminated Batch job {batch_job_id}")
 
 
+def _batch_id_for(prefix: str) -> str:
+    """Map a braid job id or Batch job id (or a prefix of either) to the Batch job id."""
+    from braid.config import jobs_cache_path
+
+    path = jobs_cache_path()
+    records = json.loads(path.read_text()) if path.exists() else []
+    matches = {
+        r["batch_job_id"]
+        for r in records
+        if r.get("job_id", "").startswith(prefix)
+        or r.get("batch_job_id", "").startswith(prefix)
+    }
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"Ambiguous id prefix {prefix!r} matches {len(matches)} jobs — use more characters."
+        )
+    return matches.pop() if matches else prefix
+
+
+def _print_new_log_events(logs, stream: str, token: str | None) -> str | None:
+    """Print events after `token`; return the token to resume from."""
+    while True:
+        kwargs = {
+            "logGroupName": "/aws/batch/job",
+            "logStreamName": stream,
+            "startFromHead": True,
+        }
+        if token:
+            kwargs["nextToken"] = token
+        try:
+            resp = logs.get_log_events(**kwargs)
+        except logs.exceptions.ResourceNotFoundException:
+            return token  # stream not created yet
+        for event in resp["events"]:
+            click.echo(event["message"])
+        if resp["nextForwardToken"] == token:
+            return token
+        token = resp["nextForwardToken"]
+
+
+def _stream_logs(batch_job_id: str, region: str, follow: bool) -> dict:
+    """Print the job's logs, polling until it finishes if `follow`. Returns the job."""
+    import boto3
+
+    from braid.aws import batch_client
+
+    batch = batch_client.get_client(region)
+    logs = boto3.client("logs", region_name=region)
+    token = None
+    while True:
+        jobs = batch_client.describe_jobs(batch, [batch_job_id])
+        if not jobs:
+            raise click.ClickException(
+                f"Batch job {batch_job_id} not found (Batch forgets jobs after ~7 days)."
+            )
+        job = jobs[0]
+        stream = job.get("container", {}).get("logStreamName")
+        if stream:
+            token = _print_new_log_events(logs, stream, token)
+        elif "arrayProperties" in job and "index" not in job["arrayProperties"]:
+            raise click.ClickException("Array job has no logs itself; pass --index N.")
+        if job["status"] in ("SUCCEEDED", "FAILED") or not follow:
+            return job
+        time.sleep(5)
+
+
+@cli.command()
+@click.argument("job_id")
+@click.option("--index", type=int, default=None, help="Array child index.")
+@click.option("--follow", "-f", is_flag=True, help="Keep printing until the job ends.")
+def logs(job_id: str, index: int | None, follow: bool) -> None:
+    """Print a Batch job's output. JOB_ID is a braid or Batch job id (or prefix)."""
+    batch_job_id = _batch_id_for(job_id)
+    if index is not None:
+        batch_job_id = f"{batch_job_id}:{index}"
+    _stream_logs(batch_job_id, load_config().region, follow)
+
+
 @cli.group()
 def batch() -> None:
     """Run coiled-batch-style script jobs on AWS Batch."""
@@ -391,6 +469,9 @@ def _script_header_opts(ctx: click.Context, script: str) -> dict:
     help="Env var passed through to the script (repeatable).",
 )
 @click.option("--region", default=None, help="AWS region override.")
+@click.option(
+    "--wait", is_flag=True, help="Stream logs until the job ends; exit 1 if it fails."
+)
 def batch_run(
     script: str,
     vcpu: float | None,
@@ -401,8 +482,9 @@ def batch_run(
     timeout_s: int | None,
     env_vars: tuple[str, ...],
     region: str | None,
+    wait: bool,
 ) -> None:
-    """Submit SCRIPT as a single fire-and-forget AWS Batch job.
+    """Submit SCRIPT as a single AWS Batch job (fire-and-forget unless --wait).
 
     Options can also be set in the script with lines like
     `# BRAID memory=8192 vcpu=4`; CLI flags take precedence.
@@ -478,6 +560,17 @@ def batch_run(
     click.echo(f"  batch job id: {batch_job_id}")
     click.echo(f"Monitor: braid status {job_id}   |   braid jobs --watch")
     click.echo(f"Cancel:  braid cancel {batch_job_id}")
+
+    if wait:
+        try:
+            job = _stream_logs(batch_job_id, config.region, follow=True)
+        except KeyboardInterrupt:
+            click.echo(f"\nStopped waiting; job still running. Resume: braid logs -f {job_id}")
+            return
+        if job["status"] != "SUCCEEDED":
+            raise click.ClickException(
+                f"Job {job['status']}: {job.get('statusReason', 'no reason given')}"
+            )
 
 
 # Fargate on-demand rates (us-east-1); other regions within ~10% — good enough for estimates

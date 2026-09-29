@@ -215,3 +215,31 @@ class TestBatchRunCommand:
 
         assert result.exit_code != 0
         assert "gpus=1" in result.output
+
+
+def test_logs_pages_until_token_repeats_and_resolves_braid_id(mocker, tmp_path):
+    cache = tmp_path / "jobs.json"
+    cache.write_text('[{"job_id": "braid-abc", "batch_job_id": "batch-123"}]')
+    mocker.patch("braid.config.jobs_cache_path", return_value=cache)
+    mocker.patch(
+        "braid.cli.commands.load_config",
+        return_value=Config(bucket="b", sqs_queue_url="q", region="us-west-2"),
+    )
+    describe = mocker.patch(
+        "braid.aws.batch_client.describe_jobs",
+        return_value=[{"status": "FAILED", "container": {"logStreamName": "s"}}],
+    )
+    mocker.patch("braid.aws.batch_client.get_client")
+    logs = MagicMock()
+    logs.get_log_events.side_effect = [
+        {"events": [{"message": "one"}], "nextForwardToken": "t1"},
+        {"events": [{"message": "two"}], "nextForwardToken": "t2"},
+        {"events": [], "nextForwardToken": "t2"},
+    ]
+    mocker.patch("boto3.client", return_value=logs)
+
+    result = CliRunner().invoke(cli, ["logs", "braid-a", "--follow"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "one\ntwo\n"
+    assert describe.call_args.args[1] == ["batch-123"]

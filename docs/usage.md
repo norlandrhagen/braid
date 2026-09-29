@@ -279,6 +279,7 @@ code.
 
 ```bash
 uv run braid batch run train.py
+uv run braid batch run train.py --wait   # stream logs, exit 1 if the job fails
 ```
 
 This prints both ids and returns immediately:
@@ -319,6 +320,7 @@ A script job is a single (non-array) Batch job, so the existing tooling works un
 ```bash
 uv run braid status <job_id>          # done/failed/pending — done=1 means exit code 0
 uv run braid jobs --watch             # recent jobs, AWS state, cost estimate
+uv run braid logs -f <job_id>         # stream the script's output (--index N for array children)
 uv run braid cancel <batch_job_id>    # terminate a running job
 uv run braid clean <job_id>           # delete its S3 artifacts
 ```
