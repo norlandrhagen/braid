@@ -28,7 +28,10 @@ def main() -> None:
         bootstrap_uv_sync,
         send_error,
         send_result,
+        start_metrics_sampler,
     )
+
+    start_metrics_sampler()
 
     bootstrap_uv_sync()
     bootstrap_editables()

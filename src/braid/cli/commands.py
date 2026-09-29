@@ -354,7 +354,8 @@ def _print_new_log_events(logs, stream: str, token: str | None) -> str | None:
         except logs.exceptions.ResourceNotFoundException:
             return token  # stream not created yet
         for event in resp["events"]:
-            click.echo(event["message"])
+            if not event["message"].startswith("BRAID_METRICS "):
+                click.echo(event["message"])
         if resp["nextForwardToken"] == token:
             return token
         token = resp["nextForwardToken"]
@@ -724,6 +725,16 @@ def batch_logs(job_id: str, index: int | None, follow: bool) -> None:
     if index is not None:
         batch_job_id = f"{batch_job_id}:{index}"
     _stream_logs(batch_job_id, load_config().region, follow)
+
+
+@cli.command()
+@click.option("--port", default=8787, show_default=True)
+@click.option("--no-browser", is_flag=True, help="Don't open a browser tab.")
+def dashboard(port: int, no_browser: bool) -> None:
+    """Local web dashboard: Batch jobs with live CPU, memory, network, disk."""
+    from braid.dashboard import serve
+
+    serve(port, open_browser=not no_browser)
 
 
 @batch.command("cancel")

@@ -12,13 +12,94 @@ import base64
 import json
 import logging
 import os
+import shutil
 import sys
+import threading
+import time
 import urllib.request
 import zipfile
 
 log = logging.getLogger("braid.worker")
 
 _INLINE_LIMIT = 200 * 1024
+
+METRICS_PREFIX = "BRAID_METRICS "
+
+
+def _get_json(url: str) -> dict:
+    with urllib.request.urlopen(url, timeout=2) as r:
+        return json.loads(r.read())
+
+
+def _ts(iso: str) -> float:
+    from datetime import datetime
+
+    return datetime.fromisoformat(iso).timestamp()
+
+
+def metrics_sample(task: dict, stats: dict) -> dict:
+    """One sample from ECS task metadata `/task` and `/task/stats` responses.
+
+    cpu is percent of one vCPU (200 = two vCPUs busy), from each container's own
+    cpu_stats/precpu_stats window: Fargate refreshes stats less often than we poll.
+    """
+    cpu = mem = rx = tx = 0
+    for s in stats.values():
+        if not s:
+            continue
+        window = _ts(s["read"]) - _ts(s["preread"])
+        if 0 < window < 3600:  # preread is year 0001 on the first read
+            used = (
+                s["cpu_stats"]["cpu_usage"]["total_usage"]
+                - s["precpu_stats"]["cpu_usage"]["total_usage"]
+            )
+            cpu += 100 * used / (window * 1e9)
+        ms = s.get("memory_stats", {})
+        # Page cache is reclaimable; subtract it like `docker stats` does.
+        inner = ms.get("stats", {})
+        mem += ms.get("usage", 0) - inner.get("inactive_file", inner.get("cache", 0))
+        for n in (s.get("networks") or {}).values():
+            rx += n["rx_bytes"]
+            tx += n["tx_bytes"]
+    eph = task.get("EphemeralStorageMetrics")
+    if eph:
+        disk, disk_limit = eph["Utilized"] * 2**20, eph["Reserved"] * 2**20
+    else:  # EC2: no task-level storage metrics
+        du = shutil.disk_usage("/")
+        disk, disk_limit = du.used, du.total
+    limits = task.get("Limits", {})
+    return {
+        "t": round(time.time(), 1),
+        "cpu": round(cpu, 1),
+        "cpu_limit": 100 * limits.get("CPU", 0),
+        "mem": mem,
+        "mem_limit": limits.get("Memory", 0) * 2**20,
+        "disk": disk,
+        "disk_limit": disk_limit,
+        "rx": rx,
+        "tx": tx,
+    }
+
+
+def start_metrics_sampler(interval: float = 5.0) -> None:
+    """Print a METRICS_PREFIX JSON line to stderr (-> CloudWatch) every `interval` s."""
+    base = os.environ.get("ECS_CONTAINER_METADATA_URI_V4")
+    if not base:
+        return
+
+    def loop() -> None:
+        while True:
+            try:
+                s = metrics_sample(
+                    _get_json(f"{base}/task"), _get_json(f"{base}/task/stats")
+                )
+                sys.stderr.write(METRICS_PREFIX + json.dumps(s) + "\n")
+                sys.stderr.flush()
+            except Exception as e:  # never take down the job over metrics
+                log.debug("metrics sample failed: %s", e)
+            time.sleep(interval)
+
+    threading.Thread(target=loop, daemon=True, name="braid-metrics").start()
 
 
 def _detached() -> bool:

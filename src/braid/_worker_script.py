@@ -43,13 +43,17 @@ def main() -> None:
     mode = os.environ["BRAID_SCRIPT_MODE"]
     urllib.request.urlretrieve(os.environ["BRAID_SCRIPT_URL"], "/tmp/script.py")
 
+    # In production _worker_common.py is downloaded alongside this script.
+    # In tests it lives in the same package directory.
+    worker_dir = os.path.dirname(os.path.abspath(__file__))
+    for p in (worker_dir, "/tmp"):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    from _worker_common import start_metrics_sampler
+
+    start_metrics_sampler()
+
     if mode == "project":
-        # In production _worker_common.py is downloaded alongside this script.
-        # In tests it lives in the same package directory.
-        worker_dir = os.path.dirname(os.path.abspath(__file__))
-        for p in (worker_dir, "/tmp"):
-            if p not in sys.path:
-                sys.path.insert(0, p)
         from _worker_common import bootstrap_editables, bootstrap_uv_sync
 
         bootstrap_uv_sync()

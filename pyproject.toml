@@ -65,6 +65,9 @@ package = true
 
 [tool.uv.sources]
 
+[tool.setuptools.package-data]
+braid = ["*.html"]
+
 
 [tool.ruff]
 target-version = "py312"

@@ -76,6 +76,7 @@ class TestWorkerScriptModeDispatch:
         fake_common = types.ModuleType("_worker_common")
         fake_common.bootstrap_editables = mocker.Mock()
         fake_common.bootstrap_uv_sync = mocker.Mock()
+        fake_common.start_metrics_sampler = mocker.Mock()
         mocker.patch.dict("sys.modules", {"_worker_common": fake_common})
 
         mock_put = mocker.patch.object(_worker_script, "_put")

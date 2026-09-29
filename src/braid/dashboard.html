@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>braid dashboard</title>
+<link rel="preconnect" href="https://fonts.carbonplan.org">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
+<style>
+/* Tokens from @carbonplan/theme */
+@font-face { font-family: 'relative-book-pro'; font-display: swap;
+  src: url('https://fonts.carbonplan.org/relative/relative-book-pro.woff2') format('woff2'); }
+@font-face { font-family: 'relative-medium-pro'; font-display: swap;
+  src: url('https://fonts.carbonplan.org/relative/relative-medium-pro.woff2') format('woff2'); }
+@font-face { font-family: 'relative-mono-11-pitch-pro'; font-display: swap;
+  src: url('https://fonts.carbonplan.org/relative/relative-mono-11-pitch-pro.woff2') format('woff2'); }
+:root {
+  --text: #ebebec; --background: #1b1e23; --secondary: #808080;
+  --muted: #393a3d; --hinted: #2a2c30;
+  --red: #f07071; --orange: #ea9755; --yellow: #d4c05e; --green: #7eb36a;
+  --teal: #64b9c4; --blue: #85a2f7; --purple: #bc85d9; --pink: #e587b6; --grey: #a9b4c4;
+  --body: relative-book-pro, Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --heading: relative-medium-pro, Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: relative-mono-11-pitch-pro, Menlo, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root { --text: #1b1e23; --background: #ffffff; --muted: #b9b9bb; --hinted: #f2f2f1; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--background); color: var(--text);
+  font-family: var(--body); letter-spacing: 0.01em; line-height: 1.35; font-size: 14px;
+}
+.caps { text-transform: uppercase; letter-spacing: 0.07em; font-family: var(--mono); font-size: 12px; color: var(--secondary); }
+.mono { font-family: var(--mono); letter-spacing: 0.07em; }
+button, select {
+  font: inherit; color: var(--text); background: transparent; cursor: pointer;
+  border: 1px solid var(--muted); border-radius: 1px; padding: 2px 8px;
+}
+button:hover, select:hover { border-color: var(--secondary); }
+select option { background: var(--background); }
+
+header {
+  display: flex; align-items: baseline; gap: 16px; padding: 16px 24px;
+  border-bottom: 1px solid var(--muted);
+}
+header h1 { font-family: var(--heading); font-weight: 400; font-size: 24px; letter-spacing: -0.015em; margin: 0; }
+header .spacer { flex: 1; }
+
+.app { display: grid; grid-template-columns: 300px 1fr; height: calc(100% - 62px); }
+nav { border-right: 1px solid var(--muted); overflow-y: auto; }
+nav .row {
+  display: grid; grid-template-columns: 10px 1fr auto; gap: 4px 10px; align-items: center;
+  padding: 10px 24px; border-bottom: 1px solid var(--muted); cursor: pointer;
+}
+nav .row:hover { background: var(--hinted); }
+nav .row.active { background: var(--hinted); box-shadow: inset 2px 0 0 var(--text); }
+nav .row .name { grid-column: 2 / 4; color: var(--secondary); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--grey); }
+.s-SUCCEEDED { background: var(--green); } .s-FAILED { background: var(--red); }
+.s-RUNNING { background: var(--blue); } .s-STARTING, .s-RUNNABLE { background: var(--yellow); }
+.s-SUBMITTED, .s-PENDING { background: var(--teal); }
+
+main { overflow-y: auto; padding: 24px 32px 64px; }
+.empty { color: var(--secondary); padding: 48px 0; }
+.title { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.title h2 { font-family: var(--heading); font-weight: 400; font-size: 34px; letter-spacing: -0.015em; margin: 0; }
+.stats { display: flex; gap: 32px; flex-wrap: wrap; margin: 20px 0 8px; }
+.stats div > div:last-child { font-family: var(--mono); font-size: 16px; margin-top: 2px; }
+.reason { color: var(--red); margin-top: 8px; }
+
+.tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--muted); margin: 24px 0 8px; }
+.tabs button {
+  border: none; padding: 8px 0; color: var(--secondary); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  font-family: var(--heading); font-size: 16px;
+}
+.tabs button.active { color: var(--text); border-bottom-color: var(--text); }
+
+.panel { margin-top: 32px; }
+.panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.panel-head h3 { font-family: var(--heading); font-weight: 400; font-size: 18px; margin: 0; }
+.panel-head .hint { color: var(--secondary); font-size: 12px; }
+.panel-head button { padding: 0 6px; font-family: var(--mono); color: var(--secondary); }
+.legend { display: flex; justify-content: center; gap: 20px; margin-top: 4px; font-size: 12px; color: var(--secondary); }
+.legend span.v { font-family: var(--mono); color: var(--text); margin-left: 4px; }
+.nodata { height: 180px; display: flex; align-items: center; justify-content: center; background: var(--hinted); color: var(--secondary); }
+
+.u-select { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.uplot { font-family: var(--mono); }
+
+pre.logs {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.02em; background: var(--hinted);
+  padding: 16px; border-radius: 1px; white-space: pre-wrap; word-break: break-word; max-height: 70vh; overflow-y: auto;
+}
+@media (max-width: 720px) {
+  .app { grid-template-columns: 1fr; height: auto; }
+  nav { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--muted); }
+  main { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>braid</h1>
+  <span class="caps">Batch jobs</span>
+  <span class="spacer"></span>
+  <span class="caps" id="updated"></span>
+</header>
+<div class="app">
+  <nav id="jobs"></nav>
+  <main id="main"><div class="empty">Select a job.</div></main>
+</div>
+
+<script>
+const POLL_MS = 5000;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+const fmtBytes = b => {
+  if (b == null) return '-';
+  const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let i = 0;
+  while (Math.abs(b) >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return `${b.toFixed(b < 10 && i ? 1 : 0)} ${u[i]}`;
+};
+const fmtDur = s => {
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s % 60}s` : `${s}s`;
+};
+const ago = ms => {
+  const s = (Date.now() - ms) / 1000;
+  return s < 60 ? `${s | 0}s ago` : s < 3600 ? `${s / 60 | 0}m ago` : s < 86400 ? `${s / 3600 | 0}h ago` : `${s / 86400 | 0}d ago`;
+};
+const api = async path => {
+  const r = await fetch(path);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || r.status);
+  return body;
+};
+
+// ---------- state ----------
+const state = {
+  jobs: [], sel: null, index: 0, tab: 'metrics',
+  samples: [], job: null, netMode: 'total', xRange: null,
+};
+let charts = [];
+
+// ---------- job list ----------
+async function loadJobs() {
+  try {
+    state.jobs = await api('/api/jobs');
+    $('#updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    $('#updated').textContent = 'error: ' + e.message;
+    return;
+  }
+  $('#jobs').innerHTML = state.jobs.length ? state.jobs.map(j => `
+    <div class="row ${j.batch_job_id === state.sel?.batch_job_id ? 'active' : ''}" data-id="${esc(j.batch_job_id)}">
+      <span class="dot s-${esc(j.status)}"></span>
+      <span class="mono">${esc(j.id)}</span>
+      <span class="caps">${ago(j.created)}</span>
+      <span class="name">${esc(j.name || j.status.toLowerCase())}${j.size > 1 ? ` · ${j.size} tasks` : ''}</span>
+    </div>`).join('') : '<div class="empty" style="padding:24px">No braid jobs in the last ~7 days.</div>';
+  for (const row of document.querySelectorAll('nav .row'))
+    row.onclick = () => select(state.jobs.find(j => j.batch_job_id === row.dataset.id));
+}
+
+function select(j) {
+  state.sel = j; state.index = 0; state.samples = []; state.job = null; state.xRange = null;
+  history.replaceState(null, '', '#' + j.batch_job_id);
+  document.querySelectorAll('nav .row').forEach(r => r.classList.toggle('active', r.dataset.id === j.batch_job_id));
+  renderShell();
+  loadJob();
+}
+
+const taskId = () => state.sel.size > 1 ? `${state.sel.batch_job_id}:${state.index}` : state.sel.batch_job_id;
+const finished = s => s === 'SUCCEEDED' || s === 'FAILED';
+
+// ---------- job detail ----------
+function renderShell() {
+  const j = state.sel;
+  $('#main').innerHTML = `
+    <div class="title">
+      <h2>${esc(j.name || j.id)}</h2>
+      <span class="mono" style="color:var(--secondary)">${esc(j.id)}</span>
+      ${j.size > 1 ? `<label class="caps">Task <select id="index">${
+        Array.from({ length: j.size }, (_, i) => `<option value="${i}">${i}</option>`).join('')}</select></label>` : ''}
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="reason" class="reason"></div>
+    <div class="tabs">
+      <button data-tab="metrics">Metrics</button>
+      <button data-tab="logs">Logs</button>
+    </div>
+    <div id="tab"></div>`;
+  const idx = $('#index');
+  if (idx) idx.onchange = () => { state.index = +idx.value; state.samples = []; state.xRange = null; renderTab(); loadJob(); };
+  for (const b of document.querySelectorAll('.tabs button'))
+    b.onclick = () => { state.tab = b.dataset.tab; renderTab(); if (state.tab === 'logs') loadLogs(); };
+  renderTab();
+}
+
+function renderStats() {
+  const j = state.job;
+  if (!j) return;
+  const summary = Object.entries(j.array_summary || {}).filter(([, n]) => n).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(', ');
+  const stat = (k, v) => `<div><div class="caps">${k}</div><div>${esc(v)}</div></div>`;
+  $('#stats').innerHTML = [
+    stat('Status', `${j.status}`),
+    stat('vCPU', j.vcpu || '-'),
+    stat('Memory', j.mem_mb ? fmtBytes(j.mem_mb * 2 ** 20) : '-'),
+    stat('Disk', state.samples.length ? fmtBytes(state.samples.at(-1).disk_limit) : '-'),
+    stat('Elapsed', j.started ? fmtDur(j.elapsed_s) : 'not started'),
+    stat('Cost est', j.cost),
+    summary ? stat('Tasks', summary) : '',
+  ].join('');
+  $('#reason').textContent = j.status === 'FAILED' ? j.reason : '';
+}
+
+function renderTab() {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
+  charts.forEach(c => c.u?.destroy());
+  charts = [];
+  if (state.tab === 'logs') { $('#tab').innerHTML = '<pre class="logs" id="logs">Loading...</pre>'; return; }
+  $('#tab').innerHTML = PANELS.map(p => `
+    <section class="panel" id="p-${p.key}">
+      <div class="panel-head">
+        <h3>${p.title}</h3>
+        ${p.key === 'net' ? `<select id="netMode"><option value="total">Total data</option><option value="rate">Rate</option></select>` : ''}
+        <span class="hint">Drag to zoom</span>
+        <button data-act="out" title="Zoom out">-</button>
+        <button data-act="reset" title="Reset zoom">reset</button>
+      </div>
+      <div class="chart"></div>
+      <div class="legend"></div>
+    </section>`).join('');
+  const nm = $('#netMode');
+  nm.value = state.netMode;
+  nm.onchange = () => { state.netMode = nm.value; renderTab(); };
+  for (const b of document.querySelectorAll('.panel-head button'))
+    b.onclick = () => b.dataset.act === 'reset' ? setX(null) : zoomOut();
+  drawCharts();
+}
+
+// ---------- charts ----------
+const pct = v => v == null ? '-' : `${Math.round(v)}%`;
+const PANELS = [
+  {
+    key: 'cpu', title: 'CPU', fmt: pct,
+    series: [
+      { label: 'used', color: 'blue', fill: true, get: s => s.cpu },
+      { label: 'limit', color: 'orange', dash: true, get: s => s.cpu_limit },
+    ],
+  },
+  {
+    key: 'mem', title: 'Memory', fmt: fmtBytes,
+    series: [
+      { label: 'used', color: 'blue', fill: true, get: s => s.mem },
+      { label: 'limit', color: 'orange', dash: true, get: s => s.mem_limit },
+    ],
+  },
+  {
+    key: 'net', title: 'Network', fmt: v => state.netMode === 'rate' ? (v == null ? '-' : fmtBytes(v) + '/s') : fmtBytes(v),
+    series: [
+      { label: 'sent', color: 'blue', fill: true, get: s => s.tx, rate: true },
+      { label: 'received', color: 'green', fill: true, get: s => s.rx, rate: true },
+    ],
+  },
+  {
+    key: 'disk', title: 'Disk', fmt: fmtBytes,
+    series: [
+      { label: 'used', color: 'teal', fill: true, get: s => s.disk },
+      { label: 'reserved', color: 'orange', dash: true, get: s => s.disk_limit },
+    ],
+  },
+];
+
+function panelData(p) {
+  const S = state.samples;
+  const xs = S.map(s => s.t);
+  const ys = p.series.map(se => {
+    const v = S.map(se.get);
+    if (!(se.rate && state.netMode === 'rate')) return v;
+    return v.map((x, i) => i ? Math.max(0, (x - v[i - 1]) / (xs[i] - xs[i - 1])) : null);
+  });
+  return [xs, ...ys];
+}
+
+let syncing = false;
+function setX(range) {
+  state.xRange = range;
+  syncing = true;
+  for (const c of charts) {
+    if (!c.u) continue;
+    const xs = c.u.data[0];
+    c.u.setScale('x', range || { min: xs[0], max: xs.at(-1) });
+  }
+  syncing = false;
+}
+function zoomOut() {
+  const xs = state.samples.map(s => s.t);
+  if (!state.xRange || !xs.length) return;
+  const { min, max } = state.xRange, w = max - min;
+  const r = { min: Math.max(xs[0], min - w / 2), max: Math.min(xs.at(-1), max + w / 2) };
+  setX(r.min <= xs[0] && r.max >= xs.at(-1) ? null : r);
+}
+
+function drawCharts() {
+  for (const p of PANELS) {
+    const sec = $(`#p-${p.key}`), el = $('.chart', sec), leg = $('.legend', sec);
+    leg.innerHTML = p.series.map(se => `<span><span class="dot" style="background:${css('--' + se.color)}"></span> ${se.label}<span class="v"></span></span>`).join('');
+    if (state.samples.length < 2) {
+      el.innerHTML = `<div class="nodata">${state.job && !state.job.has_stream ? 'Waiting for the task to start' : 'No metrics yet (samples every 5s)'}</div>`;
+      charts.push({ p, el, leg });
+      continue;
+    }
+    const axis = { stroke: css('--secondary'), grid: { stroke: css('--muted'), width: 1 }, ticks: { stroke: css('--muted'), width: 1 }, font: `11px ${css('--mono')}` };
+    const u = new uPlot({
+      width: el.clientWidth, height: 180,
+      legend: { show: false },
+      cursor: { sync: { key: 'braid' }, drag: { x: true, y: false } },
+      scales: { y: { range: (u, min, max) => [0, max > 0 ? max * 1.08 : 1] } },
+      axes: [{ ...axis, space: 90, values: (u, v) => v.map(t => new Date(t * 1000).toLocaleTimeString([], { hour12: false })) }, { ...axis, size: 70, values: (u, v) => v.map(p.fmt) }],
+      series: [{}, ...p.series.map(se => ({
+        label: se.label, stroke: css('--' + se.color), width: se.dash ? 1 : 1.5,
+        dash: se.dash ? [4, 4] : undefined, points: { show: false },
+        fill: se.fill ? css('--' + se.color) + '40' : undefined,
+      }))],
+      hooks: {
+        setScale: [(u, key) => {
+          if (key !== 'x' || syncing) return;
+          const xs = u.data[0];
+          const { min, max } = u.scales.x;
+          if (min > xs[0] || max < xs.at(-1)) setX({ min, max });
+        }],
+        setCursor: [u => {
+          const i = u.cursor.idx ?? u.data[0].length - 1;
+          leg.querySelectorAll('.v').forEach((el, k) => el.textContent = p.fmt(u.data[k + 1][i]));
+        }],
+      },
+    }, panelData(p), el);
+    charts.push({ p, el, leg, u });
+  }
+  updateLegends();
+  if (state.xRange) setX(state.xRange);
+}
+
+function updateLegends() {
+  for (const c of charts) {
+    if (!c.u) continue;
+    const i = c.u.data[0].length - 1;
+    c.leg.querySelectorAll('.v').forEach((el, k) => el.textContent = c.p.fmt(c.u.data[k + 1][i]));
+  }
+}
+
+function updateCharts() {
+  if (state.tab !== 'metrics') return;
+  if (charts.some(c => !c.u) && state.samples.length >= 2) { renderTab(); return; }
+  syncing = true;
+  for (const c of charts) c.u?.setData(panelData(c.p), !state.xRange);
+  syncing = false;
+  if (state.xRange) setX(state.xRange);
+  updateLegends();
+}
+
+new ResizeObserver(() => charts.forEach(c => c.u?.setSize({ width: c.el.clientWidth, height: 180 }))).observe(document.body);
+
+// ---------- polling ----------
+async function loadJob() {
+  if (!state.sel) return;
+  const id = taskId();
+  const since = state.samples.length ? Math.floor(state.samples.at(-1).t * 1000) + 1 : 0;
+  let r;
+  try { r = await api(`/api/job?id=${encodeURIComponent(id)}&since=${since}`); }
+  catch (e) { $('#stats').textContent = 'error: ' + e.message; return; }
+  if (id !== taskId()) return; // selection changed mid-request
+  const hadStream = state.job?.has_stream;
+  state.job = r.job;
+  state.samples.push(...r.samples);
+  renderStats();
+  if (r.samples.length || hadStream !== r.job.has_stream) updateCharts();
+}
+
+async function loadLogs() {
+  if (!state.sel || state.tab !== 'logs') return;
+  const pre = $('#logs');
+  try {
+    const lines = await api(`/api/logs?id=${encodeURIComponent(taskId())}`);
+    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
+    pre.textContent = lines.length ? lines.map(l => `${new Date(l.t).toLocaleTimeString()}  ${l.message}`).join('\n') : 'No logs yet.';
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  } catch (e) { pre.textContent = 'error: ' + e.message; }
+}
+
+async function tick() {
+  await loadJobs();
+  if (state.sel && !(state.job && finished(state.job.status))) await loadJob();
+  if (state.sel && state.tab === 'logs' && !(state.job && finished(state.job.status))) await loadLogs();
+}
+
+(async () => {
+  await loadJobs();
+  const pre = state.jobs.find(j => j.batch_job_id === location.hash.slice(1));
+  if (pre) select(pre);
+  setInterval(tick, POLL_MS);
+})();
+</script>
+</body>
+</html>
