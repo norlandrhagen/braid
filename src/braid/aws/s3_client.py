@@ -12,8 +12,12 @@ def get_client(region: str):
     # that wasn't part of the signature, so PUTs to a SigV2 presigned URL
     # fail with SignatureDoesNotMatch. SigV4 only signs headers explicitly
     # requested at presign time, so this is safe by default.
+    # Virtual addressing pins presigned URLs to the regional host; the global
+    # host 307s for new buckets and the redirected request fails with 403.
     return boto3.client(
-        "s3", region_name=region, config=BotoConfig(signature_version="s3v4")
+        "s3",
+        region_name=region,
+        config=BotoConfig(signature_version="s3v4", s3={"addressing_style": "virtual"}),
     )
 
 
@@ -50,16 +54,23 @@ def delete_prefix(client, bucket: str, prefix: str) -> None:
 
 
 def set_lifecycle_rule(client, bucket: str, prefix: str, expiry_days: int) -> None:
+    """Upsert braid's expiry rule, keeping the bucket's other lifecycle rules."""
+    rule_id = f"braid-expire-{prefix.strip('/').replace('/', '-')}"
+    try:
+        rules = client.get_bucket_lifecycle_configuration(Bucket=bucket)["Rules"]
+    except client.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] != "NoSuchLifecycleConfiguration":
+            raise
+        rules = []
+    rules = [r for r in rules if r.get("ID") != rule_id]
+    rules.append(
+        {
+            "ID": rule_id,
+            "Filter": {"Prefix": prefix},
+            "Status": "Enabled",
+            "Expiration": {"Days": expiry_days},
+        }
+    )
     client.put_bucket_lifecycle_configuration(
-        Bucket=bucket,
-        LifecycleConfiguration={
-            "Rules": [
-                {
-                    "ID": f"braid-expire-{prefix.strip('/')}",
-                    "Filter": {"Prefix": prefix},
-                    "Status": "Enabled",
-                    "Expiration": {"Days": expiry_days},
-                }
-            ]
-        },
+        Bucket=bucket, LifecycleConfiguration={"Rules": rules}
     )

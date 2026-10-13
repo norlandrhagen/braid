@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sys
+import urllib.request
 import zipfile
 
 log = logging.getLogger("braid.worker")
@@ -25,21 +26,60 @@ def _detached() -> bool:
     return os.environ.get("BRAID_DETACH") == "1"
 
 
+def bootstrap_uv_sync() -> None:
+    """Install the locked project env into the system Python via `uv sync --frozen`."""
+    url = os.environ.get("BRAID_PROJECT_URL")
+    if not url:
+        return
+    import importlib
+    import site
+    import subprocess
+
+    project_dir = "/tmp/project"
+    urllib.request.urlretrieve(url, "/tmp/project.zip")
+    zipfile.ZipFile("/tmp/project.zip").extractall(project_dir)
+
+    cmd = [
+        "uv",
+        "sync",
+        "--frozen",
+        "--all-groups",  # match the Lambda layer build
+        "--no-dev",
+        "--inexact",
+        "--python",
+        sys.executable,
+    ]
+    # Editable path deps outside the project aren't in the zip; bootstrap_editables adds them.
+    for pkg in json.loads(os.environ.get("BRAID_EDITABLES", "[]")):
+        cmd += ["--no-install-package", pkg["name"]]
+    result = subprocess.run(
+        cmd,
+        cwd=project_dir,
+        env={**os.environ, "UV_PROJECT_ENVIRONMENT": sys.prefix},
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"uv sync failed:\n{result.stderr}")
+
+    # Make packages (and the project's editable .pth) importable in this process.
+    importlib.invalidate_caches()
+    for d in site.getsitepackages():
+        site.addsitedir(d)
+    log.info("uv sync complete")
+
+
 def bootstrap_editables() -> None:
     """Download editable packages from S3 and insert into sys.path."""
     manifest_raw = os.environ.get("BRAID_EDITABLES")
     if not manifest_raw:
         return
 
-    import boto3
-
     manifest = json.loads(manifest_raw)
-    bucket = os.environ["BRAID_BUCKET"]
-    s3 = boto3.client("s3")
+    s3 = None
 
     for pkg in manifest:
         name = pkg["name"]
-        s3_key = pkg["s3_key"]
         dest = f"/tmp/editables/{name}"
 
         if os.path.isdir(dest):
@@ -48,7 +88,15 @@ def bootstrap_editables() -> None:
             continue
 
         zip_path = f"/tmp/{name}.zip"
-        s3.download_file(bucket, s3_key, zip_path)
+        if "url" in pkg:
+            # Batch: presigned, so the base image needs no boto3.
+            urllib.request.urlretrieve(pkg["url"], zip_path)
+        else:
+            # Lambda: manifest is baked in at sync time, so presigned URLs would expire.
+            import boto3
+
+            s3 = s3 or boto3.client("s3")
+            s3.download_file(os.environ["BRAID_BUCKET"], pkg["s3_key"], zip_path)
         os.makedirs(dest, exist_ok=True)
         zipfile.ZipFile(zip_path).extractall(dest)
         os.unlink(zip_path)

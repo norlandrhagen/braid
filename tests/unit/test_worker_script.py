@@ -23,7 +23,7 @@ def script_env():
         "BRAID_PYTHON_VERSION",
         "BRAID_RESULT_PUT_URL",
         "BRAID_ERROR_PUT_URL",
-        "BRAID_REQUIREMENTS_KEY",
+        "BRAID_PROJECT_URL",
         "BRAID_BUCKET",
         "BRAID_EDITABLES",
     ]
@@ -33,7 +33,7 @@ def script_env():
     os.environ["BRAID_SCRIPT_URL"] = "https://example.com/script.py"
     os.environ["BRAID_RESULT_PUT_URL"] = "https://example.com/put-result"
     os.environ["BRAID_ERROR_PUT_URL"] = "https://example.com/put-error"
-    os.environ.pop("BRAID_REQUIREMENTS_KEY", None)
+    os.environ.pop("BRAID_PROJECT_URL", None)
     os.environ.pop("BRAID_EDITABLES", None)
 
     yield
@@ -69,13 +69,13 @@ class TestWorkerScriptModeDispatch:
     def test_project_mode_uses_sys_executable(self, script_env, mocker):
         os.environ["BRAID_SCRIPT_MODE"] = "project"
         mocker.patch("urllib.request.urlretrieve")
-        mocker.patch.object(_worker_script, "_bootstrap_uv_sync")
         mocker.patch("sys.path", [])
 
         import types
 
         fake_common = types.ModuleType("_worker_common")
         fake_common.bootstrap_editables = mocker.Mock()
+        fake_common.bootstrap_uv_sync = mocker.Mock()
         mocker.patch.dict("sys.modules", {"_worker_common": fake_common})
 
         mock_put = mocker.patch.object(_worker_script, "_put")
@@ -88,6 +88,7 @@ class TestWorkerScriptModeDispatch:
         import sys
 
         assert mock_call.call_args[0][0] == [sys.executable, "/tmp/script.py"]
+        fake_common.bootstrap_uv_sync.assert_called_once()
         fake_common.bootstrap_editables.assert_called_once()
         mock_put.assert_called_once()
 

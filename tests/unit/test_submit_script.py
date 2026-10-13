@@ -170,7 +170,7 @@ class TestSubmitScriptEnvVars:
         assert "BRAID_RESULT_PUT_URL" in env
         assert "BRAID_ERROR_PUT_URL" in env
         assert env["BRAID_PYTHON_VERSION"] == cfg.python_version
-        assert "BRAID_REQUIREMENTS_KEY" not in env
+        assert "BRAID_PROJECT_URL" not in env
         assert "BRAID_EDITABLES" not in env
         assert "BRAID_SQS_QUEUE_URL" not in env
 
@@ -183,13 +183,13 @@ class TestSubmitScriptEnvVars:
         submit_script(
             script,
             cfg,
-            requirements_s3_key="req-key",
+            project_s3_key="req-key",
             editable_manifest=[{"name": "pkg", "s3_key": "k", "src_hash": "h"}],
         )
 
         env = submitted[0]["env_overrides"]
         assert env["BRAID_SCRIPT_MODE"] == "project"
-        assert env["BRAID_REQUIREMENTS_KEY"] == "req-key"
+        assert "req-key" in env["BRAID_PROJECT_URL"]
         assert "BRAID_EDITABLES" in env
         assert env["BRAID_BUCKET"] == BUCKET
         assert "BRAID_SQS_QUEUE_URL" not in env

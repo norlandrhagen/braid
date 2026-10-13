@@ -37,7 +37,7 @@ def aws_resources():
             "BRAID_BUCKET_PREFIX",
             "BRAID_SQS_QUEUE_URL",
             "BRAID_JOB_ID",
-            "BRAID_REQUIREMENTS_KEY",
+            "BRAID_PROJECT_URL",
             "BRAID_EDITABLES",
             "AWS_BATCH_JOB_ARRAY_INDEX",
             "BRAID_WORKER_URL",
@@ -76,7 +76,7 @@ def _make_submit_side_effect():
         }
         for k, v in env_overrides.items():
             os.environ[k] = v
-        os.environ.pop("BRAID_REQUIREMENTS_KEY", None)
+        os.environ.pop("BRAID_PROJECT_URL", None)
         os.environ.pop("BRAID_EDITABLES", None)
         try:
             for i in range(array_size):

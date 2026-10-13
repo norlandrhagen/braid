@@ -2,8 +2,8 @@
 Unit tests for _worker_batch.main(). Calls the worker in-process with moto
 S3/SQS, mirroring the pattern in tests/integration/test_worker.py for Lambda.
 
-Bootstrap steps (_bootstrap_uv_sync, _bootstrap_editables) are skipped by not
-setting BRAID_REQUIREMENTS_KEY or BRAID_EDITABLES in the environment.
+Bootstrap steps (bootstrap_uv_sync, bootstrap_editables) are skipped by not
+setting BRAID_PROJECT_URL or BRAID_EDITABLES in the environment.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def aws_env():
             "BRAID_SQS_QUEUE_URL",
             "BRAID_JOB_ID",
             "AWS_BATCH_JOB_ARRAY_INDEX",
-            "BRAID_REQUIREMENTS_KEY",
+            "BRAID_PROJECT_URL",
             "BRAID_EDITABLES",
         ]
         old = {k: os.environ.get(k) for k in env_keys}
@@ -48,7 +48,7 @@ def aws_env():
         os.environ["BRAID_BUCKET_PREFIX"] = ""
         os.environ["BRAID_SQS_QUEUE_URL"] = queue_url
         os.environ["BRAID_JOB_ID"] = JOB_ID
-        os.environ.pop("BRAID_REQUIREMENTS_KEY", None)
+        os.environ.pop("BRAID_PROJECT_URL", None)
         os.environ.pop("BRAID_EDITABLES", None)
 
         yield {"s3": s3, "sqs": sqs, "queue_url": queue_url}

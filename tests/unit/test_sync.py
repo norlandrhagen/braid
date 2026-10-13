@@ -296,3 +296,60 @@ class TestSyncEditables:
                 assert "module.py" in names
         finally:
             tmp_path_zip.unlink()
+
+
+@mock_aws
+def test_set_lifecycle_rule_keeps_existing_rules():
+    import boto3
+    from braid.aws import s3_client
+
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket="shared")
+    other = {
+        "ID": "keep-me",
+        "Filter": {"Prefix": "tmp/"},
+        "Status": "Enabled",
+        "Expiration": {"Days": 1},
+    }
+    s3.put_bucket_lifecycle_configuration(
+        Bucket="shared", LifecycleConfiguration={"Rules": [other]}
+    )
+
+    s3_client.set_lifecycle_rule(s3, "shared", "braid/jobs/", expiry_days=3)
+    s3_client.set_lifecycle_rule(
+        s3, "shared", "braid/jobs/", expiry_days=3
+    )  # idempotent
+
+    rules = s3.get_bucket_lifecycle_configuration(Bucket="shared")["Rules"]
+    assert sorted(r["ID"] for r in rules) == ["braid-expire-braid-jobs", "keep-me"]
+
+
+@mock_aws
+def test_sync_uv_lock_uploads_project_zip(tmp_path, monkeypatch):
+    import io
+    import subprocess
+    import zipfile
+
+    import boto3
+    from braid.sync import sync_uv_lock
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='p'\n")
+    (tmp_path / "uv.lock").write_text("version = 1\n")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "p.py").write_text("x = 1\n")
+    (tmp_path / ".gitignore").write_text(".venv/\n")
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "junk").write_text("no")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket="proj-bucket")
+    cfg = Config(bucket="proj-bucket", sqs_queue_url="q", region="us-east-1")
+
+    key = sync_uv_lock(cfg)
+    assert key == sync_uv_lock(cfg)  # content-addressed, no re-upload churn
+    body = s3.get_object(Bucket="proj-bucket", Key=key)["Body"].read()
+    names = set(zipfile.ZipFile(io.BytesIO(body)).namelist())
+    assert {"uv.lock", "pyproject.toml", "src/p.py", ".gitignore"} <= names
+    assert not any(n.startswith(".venv") for n in names)

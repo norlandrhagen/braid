@@ -345,3 +345,41 @@ class TestDetachedResultStore:
                 )
 
         assert "Failed to write error to S3" in caplog.text
+
+
+def test_batch_bootstrap_uses_presigned_urls_without_boto3(tmp_path, monkeypatch):
+    """Batch base images ship no boto3: both bootstraps must fetch over plain HTTP."""
+    pkg = f"urlpkg-{uuid.uuid4().hex[:8]}"
+    src_zip = tmp_path / "src.zip"
+    with zipfile.ZipFile(src_zip, "w") as zf:
+        zf.writestr("marker.txt", "ok")
+    project_zip = tmp_path / "project.zip"
+    with zipfile.ZipFile(project_zip, "w") as zf:
+        zf.writestr("uv.lock", "version = 1\n")
+        zf.writestr("pyproject.toml", "[project]\nname = 'p'\n")
+
+    monkeypatch.setenv(
+        "BRAID_EDITABLES",
+        json.dumps([{"name": pkg, "s3_key": "k", "url": src_zip.as_uri()}]),
+    )
+    monkeypatch.setenv("BRAID_PROJECT_URL", project_zip.as_uri())
+
+    try:
+        with (
+            mock.patch("boto3.client", side_effect=AssertionError("boto3 used")),
+            mock.patch("subprocess.run") as run,
+        ):
+            run.return_value.returncode = 0
+            _worker_common.bootstrap_uv_sync()
+            _worker_common.bootstrap_editables()
+
+        cmd = run.call_args[0][0]
+        assert cmd[:3] == ["uv", "sync", "--frozen"]
+        assert cmd[-2:] == ["--no-install-package", pkg]
+        assert run.call_args.kwargs["env"]["UV_PROJECT_ENVIRONMENT"] == sys.prefix
+        assert os.path.exists("/tmp/project/uv.lock")
+        with open(f"/tmp/editables/{pkg}/marker.txt") as f:
+            assert f.read() == "ok"
+    finally:
+        shutil.rmtree(f"/tmp/editables/{pkg}", ignore_errors=True)
+        sys.path[:] = [p for p in sys.path if pkg not in p]

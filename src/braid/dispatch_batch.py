@@ -75,6 +75,23 @@ def _presign_put(s3_client_obj, bucket: str, key: str, expires: int = 86400) -> 
     )
 
 
+def _bootstrap_env(
+    s3_obj, config: Config, project_s3_key: str, editable_manifest: list[dict]
+) -> dict[str, str]:
+    """Presigned URLs for deps, so workers can bootstrap without boto3."""
+    env: dict[str, str] = {}
+    if project_s3_key:
+        env["BRAID_PROJECT_URL"] = _presign(s3_obj, config.bucket, project_s3_key)
+    if editable_manifest:
+        env["BRAID_EDITABLES"] = json.dumps(
+            [
+                {**m, "url": _presign(s3_obj, config.bucket, m["s3_key"])}
+                for m in editable_manifest
+            ]
+        )
+    return env
+
+
 def _has_pep723_header(script_path: Path) -> bool:
     """True if script has a `# /// script` ... `# ///` PEP 723 metadata block."""
     text = script_path.read_text()
@@ -92,18 +109,24 @@ def _jobdef_cache_key(config: Config) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _ensure_job_definition(config: Config) -> None:
-    cache_key = _jobdef_cache_key(config)
+def _ensure_job_definition(config: Config) -> str:
+    """Register a job definition per distinct config and return its name.
+
+    Keyed by name so per-run overrides (e.g. `batch run --memory`) never mutate
+    the job definition that `fan` submits against.
+    """
+    name = f"{config.batch_job_definition}-{_jobdef_cache_key(config)}"
     cache_path = batch_jobdef_cache_path()
     cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
-    if cache.get("key") == cache_key:
-        return
+    registered = cache.get("names", [])
+    if name in registered:
+        return name
 
     image = _resolved_image(config)
     batch = batch_client.get_client(config.region)
     batch_client.register_job_definition(
         batch,
-        name=config.batch_job_definition,
+        name=name,
         image=image,
         command=_bootstrap_cmd(config.python_version),
         execution_role_arn=config.batch_execution_role_arn,
@@ -112,17 +135,18 @@ def _ensure_job_definition(config: Config) -> None:
         ec2=bool(config.batch_instance_types),
         ephemeral_storage_gib=config.batch_ephemeral_storage_gib,
     )
-    log.info("Registered Batch job definition: %s", config.batch_job_definition)
+    log.info("Registered Batch job definition: %s", name)
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps({"key": cache_key}))
+    cache_path.write_text(json.dumps({"names": [*registered, name]}))
+    return name
 
 
 def submit_batch(
     fn,
     inputs: list,
     config: Config,
-    requirements_s3_key: str,
+    project_s3_key: str,
     editable_manifest: list[dict],
     detach: bool = False,
 ) -> tuple[str, int, str]:
@@ -154,7 +178,7 @@ def submit_batch(
     worker_url = _presign(s3, config.bucket, worker_key)
     common_url = _presign(s3, config.bucket, common_key)
 
-    _ensure_job_definition(config)
+    job_def_name = _ensure_job_definition(config)
 
     # Validate input size: AWS Batch array jobs require size 2-10000; size 1 must use non-array job
     if len(inputs) == 0:
@@ -170,14 +194,12 @@ def submit_batch(
         "BRAID_BUCKET": config.bucket,
         "BRAID_BUCKET_PREFIX": config.bucket_prefix,
         "BRAID_SQS_QUEUE_URL": config.sqs_queue_url,
-        "BRAID_REQUIREMENTS_KEY": requirements_s3_key,
         "BRAID_WORKER_URL": worker_url,
         "BRAID_COMMON_URL": common_url,
+        **_bootstrap_env(s3, config, project_s3_key, editable_manifest),
     }
     if detach:
         env_overrides["BRAID_DETACH"] = "1"
-    if editable_manifest:
-        env_overrides["BRAID_EDITABLES"] = json.dumps(editable_manifest)
 
     batch = batch_client.get_client(config.region)
 
@@ -185,7 +207,7 @@ def submit_batch(
         # Single input uses non-array job submission
         batch_job_id = batch_client.submit_single_job(
             batch,
-            job_def_name=config.batch_job_definition,
+            job_def_name=job_def_name,
             queue_name=config.batch_job_queue,
             job_id=job_id,
             env_overrides=env_overrides,
@@ -199,7 +221,7 @@ def submit_batch(
         # 2-10000 inputs use array job submission
         batch_job_id = batch_client.submit_array_job(
             batch,
-            job_def_name=config.batch_job_definition,
+            job_def_name=job_def_name,
             queue_name=config.batch_job_queue,
             job_id=job_id,
             array_size=len(inputs),
@@ -217,7 +239,7 @@ def submit_batch(
 def submit_script(
     script_path: Path,
     config: Config,
-    requirements_s3_key: str = "",
+    project_s3_key: str = "",
     editable_manifest: list[dict] | None = None,
     env_passthrough: dict[str, str] | None = None,
 ) -> tuple[str, str]:
@@ -251,7 +273,7 @@ def submit_script(
         s3, config.bucket, config.s3_key(f"jobs/{job_id}/errors/0.json")
     )
 
-    _ensure_job_definition(config)
+    job_def_name = _ensure_job_definition(config)
 
     mode = "pep723" if _has_pep723_header(script_path) else "project"
 
@@ -268,16 +290,16 @@ def submit_script(
     if mode == "project":
         env_overrides["BRAID_BUCKET"] = config.bucket
         env_overrides["BRAID_BUCKET_PREFIX"] = config.bucket_prefix
-        env_overrides["BRAID_REQUIREMENTS_KEY"] = requirements_s3_key
-        if editable_manifest:
-            env_overrides["BRAID_EDITABLES"] = json.dumps(editable_manifest)
+        env_overrides.update(
+            _bootstrap_env(s3, config, project_s3_key, editable_manifest or [])
+        )
     if env_passthrough:
         env_overrides.update(env_passthrough)
 
     batch = batch_client.get_client(config.region)
     batch_job_id = batch_client.submit_single_job(
         batch,
-        job_def_name=config.batch_job_definition,
+        job_def_name=job_def_name,
         queue_name=config.batch_job_queue,
         job_id=job_id,
         env_overrides=env_overrides,
