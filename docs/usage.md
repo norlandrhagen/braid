@@ -327,7 +327,7 @@ uv run braid clean <job_id>           # delete its S3 artifacts
 
 ```bash
 uv run braid batch run train.py \
-    --vcpu 4 --memory 16384 --disk 50 \
+    --vcpu 4 --memory 16384 --disk 50 --timeout 7200 \
     --instance-type m8g.xlarge \
     --env WANDB_PROJECT=my-project --env EPOCHS=10
 ```

@@ -150,6 +150,7 @@ def submit_single_job(
     queue_name: str,
     job_id: str,
     env_overrides: dict[str, str],
+    timeout_s: int,
 ) -> str:
     """Submit a non-array Batch job for a single input."""
     env_list = [{"name": k, "value": v} for k, v in env_overrides.items()]
@@ -158,6 +159,7 @@ def submit_single_job(
         jobQueue=queue_name,
         jobDefinition=job_def_name,
         containerOverrides={"environment": env_list},
+        timeout={"attemptDurationSeconds": timeout_s},
     )
     return resp["jobId"]
 
@@ -169,6 +171,7 @@ def submit_array_job(
     job_id: str,
     array_size: int,
     env_overrides: dict[str, str],
+    timeout_s: int,
 ) -> str:
     env_list = [{"name": k, "value": v} for k, v in env_overrides.items()]
     resp = client.submit_job(
@@ -177,5 +180,6 @@ def submit_array_job(
         jobDefinition=job_def_name,
         arrayProperties={"size": array_size},
         containerOverrides={"environment": env_list},
+        timeout={"attemptDurationSeconds": timeout_s},
     )
     return resp["jobId"]

@@ -377,6 +377,13 @@ def _script_header_opts(ctx: click.Context, script: str) -> dict:
 )
 @click.option("--image", default=None, help="Container image override.")
 @click.option(
+    "--timeout",
+    "timeout_s",
+    type=click.IntRange(min=60),
+    default=None,
+    help="Kill the job after this many seconds (default: config batch_timeout_s).",
+)
+@click.option(
     "--env",
     "env_vars",
     multiple=True,
@@ -391,6 +398,7 @@ def batch_run(
     disk_gib: int | None,
     instance_types: tuple[str, ...],
     image: str | None,
+    timeout_s: int | None,
     env_vars: tuple[str, ...],
     region: str | None,
 ) -> None:
@@ -410,6 +418,7 @@ def batch_run(
     disk_gib = header.get("disk_gib", disk_gib)
     instance_types = header.get("instance_types", instance_types)
     image = header.get("image", image)
+    timeout_s = header.get("timeout_s", timeout_s)
     env_vars = header.get("env_vars", env_vars)
     region = header.get("region", region)
 
@@ -426,6 +435,8 @@ def batch_run(
         overrides["batch_instance_types"] = list(instance_types)
     if image is not None:
         overrides["batch_image"] = image
+    if timeout_s is not None:
+        overrides["batch_timeout_s"] = timeout_s
     if region is not None:
         overrides["region"] = region
     if overrides:
@@ -554,7 +565,9 @@ def _build_jobs_table(records: list[dict], job_details: dict, config, full_ids: 
         status = detail.get("status", "UNKNOWN")
         style = _STATUS_STYLE.get(status, "white")
 
-        if is_ec2:
+        if status == "UNKNOWN":
+            cost_str = "-"  # AWS purged the job; no stop time to price
+        elif is_ec2:
             cost_str = "EC2/varies"
         else:
             try:

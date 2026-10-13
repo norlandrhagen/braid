@@ -57,6 +57,7 @@ class Config(BaseModel):
         default=""
     )  # custom base image; defaults to ghcr.io/astral-sh/uv:python{version}-bookworm-slim
     batch_ephemeral_storage_gib: int = Field(default=21, ge=21, le=200)
+    batch_timeout_s: int = Field(default=86400, ge=60)  # AWS kills jobs past this
 
     def s3_key(self, suffix: str) -> str:
         """Prepend bucket_prefix to an S3 key suffix."""

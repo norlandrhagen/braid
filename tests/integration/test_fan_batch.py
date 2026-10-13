@@ -89,7 +89,9 @@ def _make_submit_side_effect():
         "BRAID_WORKER_URL",
     ]
 
-    def _submit(client, job_def_name, queue_name, job_id, array_size, env_overrides):
+    def _submit(
+        client, job_def_name, queue_name, job_id, array_size, env_overrides, timeout_s
+    ):
         old = {
             k: os.environ.get(k)
             for k in list(env_overrides) + ["AWS_BATCH_JOB_ARRAY_INDEX"]
@@ -121,7 +123,7 @@ def _make_submit_single_side_effect():
     For single jobs, AWS_BATCH_JOB_ARRAY_INDEX is not set; worker defaults to 0.
     """
 
-    def _submit(client, job_def_name, queue_name, job_id, env_overrides):
+    def _submit(client, job_def_name, queue_name, job_id, env_overrides, timeout_s):
         old = {
             k: os.environ.get(k)
             for k in list(env_overrides) + ["AWS_BATCH_JOB_ARRAY_INDEX"]
@@ -231,7 +233,13 @@ class TestFanBatchRetry:
         real_single_side_effect = _make_submit_single_side_effect()
 
         def _inject_failure(
-            client, job_def_name, queue_name, job_id, array_size, env_overrides
+            client,
+            job_def_name,
+            queue_name,
+            job_id,
+            array_size,
+            env_overrides,
+            timeout_s,
         ):
             if not first_call_done[0]:
                 # Run real worker for all but index 1 — inject a fake error for index 1
