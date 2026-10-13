@@ -184,3 +184,33 @@ class TestBatchRunCommand:
         assert result.exit_code == 0, result.output
         mock_sync_lock.assert_called_once()
         mock_sync_editables.assert_called_once()
+
+    def test_braid_header_options(self, runner, mocker, tmp_path):
+        mocker.patch("braid.cli.commands.load_config", return_value=self._config())
+        mocker.patch("braid.dispatch_batch._has_pep723_header", return_value=True)
+        mock_submit = mocker.patch(
+            "braid.dispatch_batch.submit_script",
+            return_value=("job-123", "batch-job-456"),
+        )
+        script = tmp_path / "script.py"
+        script.write_text(
+            "# BRAID memory=8192 vcpu=4\n# BRAID env=A=1 env=B=2\nprint('hi')\n"
+        )
+
+        result = runner.invoke(cli, ["batch", "run", str(script), "--vcpu", "2"])
+
+        assert result.exit_code == 0, result.output
+        used_config = mock_submit.call_args[0][1]
+        assert used_config.batch_memory_mb == 8192
+        assert used_config.batch_vcpu == 2
+        assert mock_submit.call_args.kwargs["env_passthrough"] == {"A": "1", "B": "2"}
+
+    def test_braid_header_unknown_key(self, runner, mocker, tmp_path):
+        mocker.patch("braid.cli.commands.load_config", return_value=self._config())
+        script = tmp_path / "script.py"
+        script.write_text("# BRAID gpus=1\n")
+
+        result = runner.invoke(cli, ["batch", "run", str(script)])
+
+        assert result.exit_code != 0
+        assert "gpus=1" in result.output

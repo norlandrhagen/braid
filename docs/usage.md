@@ -335,6 +335,14 @@ uv run braid batch run train.py \
 `--instance-type` (repeatable) implies EC2 mode for this job. `--env` (repeatable) passes
 `KEY=VALUE` pairs straight through to the script's environment.
 
+The same options can live in the script itself, next to its PEP 723 block. Keys are the
+flag names without `--`; flags given on the command line win:
+
+```python
+# BRAID vcpu=4 memory=16384 disk=50
+# BRAID env=WANDB_PROJECT=my-project env=EPOCHS=10
+```
+
 ### Mental model
 
 Keep `fan`/`submit` and `batch run` separate in your head: `fan`/`submit` parallelize one
